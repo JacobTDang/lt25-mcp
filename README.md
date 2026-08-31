@@ -165,10 +165,24 @@ Spectral features of a mixed, mastered, lossily-encoded recording reflect the
 mix engineer and the codec as much as the amp; a rule table over eighteen
 models cannot recover a signal chain.
 
-So `mapping.py` aims for a defensible starting point, not a match, and
-`describe_settings()` prints knob positions on the amp's own 0-10 scale — if
-the automatic choice is wrong, that is still better than starting from the
-middle of every knob.
+So `mapping.py` aims for a defensible starting point, not a match, and says
+how much to trust it. `choose_amp()` returns an `AmpChoice` carrying a
+confidence score — how far the measurement sits from the nearest decision
+boundary — the reasoning behind the pick, and, when the call is close, the amp
+it would have chosen just the other side of that boundary:
+
+```
+Confidence in the amp model: 34%
+  because crest 9.5 dB and harmonic ratio 0.90 read as clean; centroid
+  1400 Hz and 28% midrange chose the model
+  this one is borderline - also worth auditioning: DELUXE DIRT
+```
+
+`describe_settings()` prints knob positions on the amp's own 0-10 scale, so
+even a wrong pick beats starting from the middle of every knob.
+
+Only the clean path has been calibrated against real audio so far; the
+high-gain thresholds are still set from synthesized signals.
 
 ## Development
 
@@ -177,10 +191,10 @@ middle of every knob.
 ./scripts/gen_proto.sh     # regenerate protobuf bindings
 ```
 
-See [docs/troubleshooting.md](docs/troubleshooting.md) if imports fail after a
-sync: uv writes `.pth` files with the macOS hidden flag and CPython 3.12+
-silently skips those, which breaks the editable install. `scripts/py` works
-around it.
+Use `./scripts/py` rather than `uv run python`. It sets `PYTHONPATH` to
+`src/` so nothing depends on the editable install resolving — uv writes `.pth`
+files with the macOS hidden flag and CPython 3.12+ silently skips those. See
+[docs/troubleshooting.md](docs/troubleshooting.md).
 
 The implementation plan is in
 [docs/superpowers/plans/](docs/superpowers/plans/).

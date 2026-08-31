@@ -13,6 +13,8 @@ starting point than the middle of every knob.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from lt25_mcp.analysis.features import ToneFeatures
 from lt25_mcp.dsp_catalog import PASSTHRU
 from lt25_mcp.preset import DISPLAY_NAME_LENGTH, Preset, PresetError
@@ -58,8 +60,34 @@ ROOM_DECAY_S = 1.6
 INCONCLUSIVE_DECAY_FRACTION = 0.95
 
 
+# How far from a decision boundary a measurement must sit before the choice
+# counts as confident. Crest factor spans roughly 0-20 dB across clean to
+# heavily saturated, so 3 dB is a meaningful margin.
+CONFIDENT_MARGIN_DB = 3.0
+
+# Below this, offer the neighbouring character's amp as an alternative.
+CONFIDENT = 0.6
+
+
 class MappingError(Exception):
     """Raised when features cannot be turned into a preset."""
+
+
+@dataclass(frozen=True)
+class AmpChoice:
+    """An amp model choice, with how much to trust it.
+
+    The rule table is uncalibrated against real recordings, so a bare answer
+    would be false precision. Confidence reflects how far the measurement sits
+    from the nearest decision boundary; `alternatives` names what it would have
+    chosen just the other side of that boundary, which is what to audition next
+    if the first answer is wrong.
+    """
+
+    amp_model: str
+    confidence: float
+    reason: str
+    alternatives: list[str] = field(default_factory=list)
 
 
 def gain_character(features: ToneFeatures) -> str:
@@ -74,9 +102,16 @@ def gain_character(features: ToneFeatures) -> str:
     return "crunch"
 
 
-def choose_amp_model(features: ToneFeatures) -> str:
-    """Pick the amp model whose character best matches the measurements."""
-    character = gain_character(features)
+def _character_confidence(features: ToneFeatures) -> float:
+    """How far the crest factor sits from the nearest gain boundary, 0..1."""
+    margin = min(
+        abs(features.crest_factor_db - CLEAN_CREST_DB),
+        abs(features.crest_factor_db - HIGH_GAIN_CREST_DB),
+    )
+    return _clamp(margin / CONFIDENT_MARGIN_DB)
+
+
+def _amp_for_character(character: str, features: ToneFeatures) -> str:
     centroid = features.spectral_centroid_hz
     mid = features.mid_energy_ratio
 
@@ -99,6 +134,40 @@ def choose_amp_model(features: ToneFeatures) -> str:
     if features.low_energy_ratio >= 0.30:
         return "DUBS_Bassman59"
     return "DUBS_Deluxe57"
+
+
+def _neighbouring_characters(character: str) -> list[str]:
+    return {
+        "clean": ["crunch"],
+        "crunch": ["clean", "high_gain"],
+        "high_gain": ["crunch"],
+    }[character]
+
+
+def choose_amp(features: ToneFeatures) -> AmpChoice:
+    """Pick an amp model, and say how much to trust the pick."""
+    character = gain_character(features)
+    primary = _amp_for_character(character, features)
+    confidence = _character_confidence(features)
+    reason = (
+        f"crest {features.crest_factor_db:.1f} dB and harmonic ratio "
+        f"{features.harmonic_ratio:.2f} read as {character.replace('_', ' ')}; "
+        f"centroid {features.spectral_centroid_hz:.0f} Hz and "
+        f"{features.mid_energy_ratio:.0%} midrange chose the model"
+    )
+    alternatives: list[str] = []
+    if confidence < CONFIDENT:
+        for neighbour in _neighbouring_characters(character):
+            candidate = _amp_for_character(neighbour, features)
+            if candidate != primary and candidate not in alternatives:
+                alternatives.append(candidate)
+    return AmpChoice(primary, confidence, reason, alternatives)
+
+
+def choose_amp_model(features: ToneFeatures) -> str:
+    """Pick the amp model whose character best matches the measurements."""
+    return choose_amp(features).amp_model
+
 
 
 def choose_reverb(features: ToneFeatures) -> str | None:
@@ -182,11 +251,12 @@ def build_preset(
     return preset
 
 
-def describe_settings(preset: Preset) -> str:
+def describe_settings(preset: Preset, *, choice: AmpChoice | None = None) -> str:
     """The preset as knob positions on the amp's own 0-10 scale.
 
     Useful on its own: if the automatic choice is close but not right, this is
-    what you dial in by hand.
+    what you dial in by hand. Pass the `AmpChoice` to have the output say how
+    much to trust the amp model, and what to try instead.
     """
     params = preset.params("amp")
     labels = [("gain", "Gain"), ("treb", "Treble"), ("mid", "Middle"), ("bass", "Bass")]
@@ -201,4 +271,14 @@ def describe_settings(preset: Preset) -> str:
     for node in EFFECT_NODES:
         if preset.has_effect(node):
             lines.append(f"  {node.capitalize():8} {effect_label(node, preset.unit(node))}")
+
+    if choice is not None:
+        lines.append("")
+        lines.append(f"Confidence in the amp model: {choice.confidence:.0%}")
+        lines.append(f"  because {choice.reason}")
+        if choice.alternatives:
+            from lt25_mcp.dsp_catalog import amp_label as _label
+
+            names = ", ".join(_label(a) for a in choice.alternatives)
+            lines.append(f"  this one is borderline - also worth auditioning: {names}")
     return "\n".join(lines)

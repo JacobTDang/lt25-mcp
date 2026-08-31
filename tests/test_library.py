@@ -1,6 +1,7 @@
 """Tests for reading presets off the amp and backing up the whole library."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -137,3 +138,26 @@ class TestLoadBackup:
         (out / "slot-07.json").unlink()
         with pytest.raises(SlotError, match="not a complete"):
             load_backup(out)
+
+
+class TestBackupOrdering:
+    def test_double_digit_suffix_sorts_after_single_digit(self, tmp_path):
+        """backup-X-10 must not sort before backup-X-2."""
+        from lt25_mcp.library import _backup_sort_key
+
+        names = ["backup-20260101T000000Z", "backup-20260101T000000Z-2",
+                 "backup-20260101T000000Z-10", "backup-20260101T000000Z-3"]
+        ordered = sorted(names, key=lambda n: _backup_sort_key(Path(n)))
+        assert ordered[-1].endswith("-10")
+
+    def test_latest_picks_the_highest_suffix(self, tmp_path):
+        """Eleven backups in one second: the 11th must win, not the 2nd."""
+        made = [backup_all(FakeSession(), tmp_path) for _ in range(11)]
+        assert latest_backup(tmp_path) == made[-1]
+
+    def test_a_later_timestamp_beats_a_higher_suffix(self, tmp_path):
+        from lt25_mcp.library import _backup_sort_key
+
+        older = Path("backup-20260101T000000Z-10")
+        newer = Path("backup-20260101T000001Z")
+        assert _backup_sort_key(newer) > _backup_sort_key(older)

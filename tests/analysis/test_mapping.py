@@ -221,3 +221,68 @@ class TestKnobsStayUsable:
         dull = _tone_controls(features(high_energy_ratio=REFERENCE_HIGH - 0.2))["treb"]
         bright = _tone_controls(features(high_energy_ratio=REFERENCE_HIGH + 0.2))["treb"]
         assert bright > dull
+
+
+class TestConfidence:
+    def test_a_clear_clean_tone_is_confident(self):
+        from lt25_mcp.analysis.mapping import choose_amp
+
+        choice = choose_amp(features(crest_factor_db=18.0, harmonic_ratio=0.95))
+        assert choice.confidence > 0.8
+
+    def test_a_tone_on_the_boundary_is_not_confident(self):
+        from lt25_mcp.analysis.mapping import CLEAN_CREST_DB, choose_amp
+
+        choice = choose_amp(
+            features(crest_factor_db=CLEAN_CREST_DB, harmonic_ratio=0.9)
+        )
+        assert choice.confidence < 0.35
+
+    def test_confidence_is_a_fraction(self):
+        from lt25_mcp.analysis.mapping import choose_amp
+
+        for crest in (0.0, 2.0, 4.5, 7.0, 9.5, 12.0, 20.0):
+            c = choose_amp(features(crest_factor_db=crest))
+            assert 0.0 <= c.confidence <= 1.0
+
+    def test_choice_names_the_model_and_a_reason(self):
+        from lt25_mcp.analysis.mapping import choose_amp
+
+        choice = choose_amp(features(**CLEAN))
+        assert choice.amp_model in AMP_MODELS
+        assert choice.reason
+
+    def test_borderline_offers_the_neighbouring_character(self):
+        """If it could plausibly be crunch, say which amp that would be."""
+        from lt25_mcp.analysis.mapping import CLEAN_CREST_DB, choose_amp
+
+        choice = choose_amp(
+            features(crest_factor_db=CLEAN_CREST_DB + 0.1, harmonic_ratio=0.9)
+        )
+        assert choice.alternatives
+        assert all(a in AMP_MODELS for a in choice.alternatives)
+        assert choice.amp_model not in choice.alternatives
+
+    def test_a_confident_choice_offers_no_alternatives(self):
+        from lt25_mcp.analysis.mapping import choose_amp
+
+        choice = choose_amp(features(crest_factor_db=20.0, harmonic_ratio=0.99))
+        assert choice.alternatives == []
+
+    def test_choose_amp_model_still_returns_the_primary(self):
+        from lt25_mcp.analysis.mapping import choose_amp
+
+        f = features(**HIGH_GAIN)
+        assert choose_amp_model(f) == choose_amp(f).amp_model
+
+
+class TestDescribeReportsUncertainty:
+    def test_describe_settings_mentions_low_confidence(self, sample_preset):
+        from lt25_mcp.analysis.mapping import CLEAN_CREST_DB, choose_amp
+
+        f = features(crest_factor_db=CLEAN_CREST_DB, harmonic_ratio=0.9)
+        text = describe_settings(build_preset(f, sample_preset), choice=choose_amp(f))
+        assert "confiden" in text.lower() or "uncertain" in text.lower()
+
+    def test_describe_settings_works_without_a_choice(self, sample_preset):
+        assert describe_settings(build_preset(features(), sample_preset))

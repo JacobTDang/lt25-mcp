@@ -29,6 +29,7 @@ class PipelineError(Exception):
 class Result:
     preset: Preset
     features: features_mod.ToneFeatures
+    choice: mapping.AmpChoice
     audio: Path
     stem: Path | None
     spectrogram: Path | None
@@ -72,6 +73,7 @@ def analyse(
         )
 
     measured = features_mod.extract(stem or source)
+    choice = mapping.choose_amp(measured)
     preset = mapping.build_preset(measured, base, name=name)
 
     image = None
@@ -79,7 +81,12 @@ def analyse(
         image = plots.spectrogram(stem or source, work_dir / "spectrogram.png")
 
     return Result(
-        preset=preset, features=measured, audio=source, stem=stem, spectrogram=image
+        preset=preset,
+        features=measured,
+        choice=choice,
+        audio=source,
+        stem=stem,
+        spectrogram=image,
     )
 
 
@@ -134,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
     print("measured:")
     print(result.features.describe())
     print()
-    print(mapping.describe_settings(result.preset))
+    print(mapping.describe_settings(result.preset, choice=result.choice))
     print()
     print(f"preset written to {args.out}")
     if result.spectrogram:

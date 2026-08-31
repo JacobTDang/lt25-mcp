@@ -91,6 +91,18 @@ def is_complete(backup: Path) -> bool:
     return all((backup / f"slot-{n:02d}.json").exists() for n in range(SLOT_MIN, SLOT_MAX + 1))
 
 
+def _backup_sort_key(backup: Path) -> tuple[str, int]:
+    """Sort backups by timestamp, then by collision suffix numerically.
+
+    Names look like `backup-<stamp>` or `backup-<stamp>-<n>`. Sorting those as
+    plain strings puts `-10` before `-2`, which would pick the wrong backup as
+    the most recent.
+    """
+    name = backup.name.removeprefix("backup-")
+    stamp, _, suffix = name.partition("-")
+    return stamp, int(suffix) if suffix.isdigit() else 1
+
+
 def latest_backup(root: Path) -> Path | None:
     """Most recent complete backup under `root`, or None."""
     root = Path(root)
@@ -99,7 +111,7 @@ def latest_backup(root: Path) -> Path | None:
     candidates = [p for p in root.glob("backup-*") if is_complete(p)]
     if not candidates:
         return None
-    return max(candidates, key=lambda p: p.name)
+    return max(candidates, key=_backup_sort_key)
 
 
 def load_backup(backup: Path) -> dict[int, dict]:
