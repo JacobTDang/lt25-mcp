@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Launcher for the MCP server. Clears the macOS hidden flag uv puts on .pth
+# files (CPython >= 3.12 skips hidden .pth, breaking the editable install)
+# before handing over to the server on stdio.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+shopt -s nullglob
+files=(.venv/lib/python*/site-packages/*.pth)
+(( ${#files[@]} )) && chflags nohidden "${files[@]}" 2>/dev/null || true
+exec uv run --no-sync python -m lt25_mcp.server
