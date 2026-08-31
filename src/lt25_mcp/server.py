@@ -26,6 +26,7 @@ from lt25_mcp.dsp_catalog import AMP_MODELS, EFFECTS, effect_label
 from lt25_mcp.library import SLOT_MAX, SLOT_MIN, WRITABLE_MIN, backup_all, latest_backup, read_preset
 from lt25_mcp.parameters import describe_parameters
 from lt25_mcp.preset import Preset, PresetError
+from lt25_mcp.rig import PICKUP_RATIONALE, PICKUP_TYPES, Rig, RigError, adjust_for_rig, slots_to_leave_empty
 from lt25_mcp.session import Session
 from lt25_mcp.transport import open_transport
 from lt25_mcp.tuning import STRUCTURAL_ADVICE, catalogue, remedy_for
@@ -68,6 +69,14 @@ is decibels and always negative.
 3. Gain - clean versus saturated, and how much dynamic range survives.
 4. Mid - what makes a tone cut through or disappear in a band.
 5. Treble and bass - the fine adjustment, not the coarse one.
+
+## The player's rig
+
+A preset is not a tone on its own: the same settings sound different through
+different pickups, and loading an overdrive into the stomp slot is wrong if
+the player already has a real one in front of the amp. Call `get_rig` at the
+start of a session. If nothing has been declared, ask - it takes one question
+and it changes the answers. `set_rig` records it.
 
 ## Rules
 
@@ -263,6 +272,7 @@ def tune_preset(
     amp_model: str | None = None,
     effects: dict[str, str] | None = None,
     name: str | None = None,
+    apply_rig: bool = False,
 ) -> dict[str, Any]:
     preset = Preset.from_dict(json.loads(preset_json)).clone()
     changes: list[str] = []
@@ -279,6 +289,12 @@ def tune_preset(
         if name is not None:
             preset.display_name = name
             changes.append(f"name -> {name}")
+        if apply_rig:
+            rig = Rig.load()
+            adjusted, why = adjust_for_rig(preset.knobs(), rig)
+            for knob, value in adjusted.items():
+                preset.set_knob(knob, value)
+            changes.extend(why)
     except PresetError as exc:
         raise ValueError(str(exc)) from exc
     return {
@@ -320,6 +336,48 @@ def tuning_guide(complaint: str | None = None) -> dict[str, Any]:
     return {"catalogue": catalogue(), "structural_advice": list(STRUCTURAL_ADVICE)}
 
 
+@server.tool(
+    description=(
+        "What guitar and pedals the player is using. Call this before tuning: "
+        "pickup type shifts appropriate gain by a notch or two, and a real "
+        "pedal in front means the matching amp slot should stay empty."
+    )
+)
+def get_rig() -> dict[str, Any]:
+    rig = Rig.load()
+    return {
+        **rig.to_dict(),
+        "declared": rig.pickups != "unknown" or bool(rig.pedals),
+        "summary": rig.describe(),
+        "pickup_effect": PICKUP_RATIONALE[rig.pickups],
+        "slots_to_leave_empty": slots_to_leave_empty(rig),
+        "pickup_types": list(PICKUP_TYPES),
+    }
+
+
+@server.tool(
+    description=(
+        "Record the player's guitar and pedals. pickups is one of: unknown, "
+        "single_coil, humbucker, p90, active. pedals lists what is in front of "
+        "the amp: overdrive, distortion, fuzz, compressor, modulation, delay, "
+        "reverb."
+    )
+)
+def set_rig(
+    pickups: str = "unknown",
+    guitar: str = "",
+    pedals: list[str] | None = None,
+    notes: str = "",
+) -> dict[str, Any]:
+    try:
+        rig = Rig(pickups=pickups, guitar=guitar, pedals=pedals or [], notes=notes)
+    except RigError as exc:
+        raise ValueError(str(exc)) from exc
+    path = rig.save()
+    return {"saved_to": str(path), "summary": rig.describe(),
+            "pickup_effect": PICKUP_RATIONALE[rig.pickups]}
+
+
 @server.prompt(
     name="match_tone",
     description="Guided workflow for matching a guitar tone by ear with the player.",
@@ -331,6 +389,7 @@ Help me dial in {target} on my Mustang LT25.
 Work this way:
 
 1. Check `amp_status`. If no backup exists, run `backup_presets` first.
+   Check `get_rig` too - if my pickups are undeclared, ask me before guessing.
 2. Pick a starting preset with `get_preset` - something already in the right
    family (clean, crunch or high gain) rather than an empty slot.
 3. Run `describe_preset` so you know which controls this model has.

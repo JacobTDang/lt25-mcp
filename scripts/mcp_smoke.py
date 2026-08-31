@@ -97,6 +97,18 @@ def main() -> int:
         print(f"tune_preset: {tuned['changes']}")
         print(f"            knobs now {tuned['knobs_on_amp_scale']}")
 
+        rig = client.call_tool("get_rig")
+        print(f"get_rig: pickups={rig['pickups']} declared={rig['declared']} "
+              f"empty_slots={list(rig['slots_to_leave_empty'])}")
+
+        for pickups in ("humbucker", "single_coil"):
+            client.call_tool("set_rig", pickups=pickups, guitar="smoke test")
+            out = client.call_tool("tune_preset", preset_json=preset,
+                                   knobs={"gain": 5.0}, apply_rig=True)
+            print(f"  {pickups:12} gain -> {out['knobs_on_amp_scale']['gain']}")
+        client.call_tool("set_rig", pickups=rig["pickups"], guitar=rig["guitar"],
+                         pedals=rig["pedals"], notes=rig["notes"])
+
         prompt = client.request("prompts/get", {
             "name": "match_tone", "arguments": {"target": "the courage solo tone"}})
         first = prompt["messages"][0]["content"]["text"].splitlines()[0]

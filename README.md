@@ -85,6 +85,22 @@ name are all refused rather than sent to the amp.
 The loop is: start from a real preset, audition it, ask what is wrong, look
 the answer up, change **one** thing, audition again.
 
+### The rig matters
+
+A preset is not a tone on its own. The same settings sound different through
+different pickups, and loading an overdrive into the stomp slot is wrong if
+there is already a real one in front of the amp.
+
+`get_rig` and `set_rig` record that once. Humbuckers put out roughly twice the
+level of single-coils and are darker, so a preset built from a recording of
+somebody else's guitar arrives hotter and duller: `tune_preset(apply_rig=True)`
+backs the gain off a notch and opens the treble up, and says that it did.
+Declared pedals mark their matching amp slot as one to leave empty rather than
+stacking two of the same effect.
+
+Adjustments only apply when the pickup type is actually known — an undeclared
+rig changes nothing rather than guessing.
+
 ### From a clip to a preset
 
 ```bash
