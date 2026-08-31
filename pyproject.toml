@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "MCP server for the Fender Mustang LT25 guitar amplifier"
 requires-python = ">=3.12"
 dependencies = [
+    "demucs>=4.0.1",
     "hidapi>=0.15.0",
     "librosa>=1.0.0",
     "matplotlib>=3.11.1",

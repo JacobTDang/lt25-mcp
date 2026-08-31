@@ -8,6 +8,48 @@
 
 **Tech Stack:** Python 3.12, `hidapi` (USB HID), `protobuf` (wire codec), `mcp` (server), `yt-dlp` + `ffmpeg` (acquisition), `demucs` (stem isolation), `librosa` + `matplotlib` (analysis).
 
+## Status as built
+
+Phase 1 is complete and verified against a real Mustang LT 25 on firmware
+2.1.4. Phase 2 is complete in code with its logic tested; the one step never
+exercised is a real yt-dlp download, because no target clip was supplied.
+
+| Task | State |
+|---|---|
+| 1 Framing | done |
+| 2 Protobuf codec | done |
+| 3 HID transport | done, hardware verified |
+| 4 Session | done, hardware verified |
+| 5 Backup 60 slots | done, hardware verified |
+| 6 Preset model + catalog | done |
+| 7 Audition | done, hardware verified |
+| 8 Guarded write | done, hardware verified |
+| 9 MCP server | done, 9 tools |
+| 10 Acquire | done, argv tested; live download not run |
+| 11 Stems | done |
+| 12 Features | done, validated on synthesized audio |
+| 13 Plots | done |
+| 14 Mapping | done, thresholds uncalibrated (issue #4) |
+| 15 CLI | done |
+
+Corrections made to this plan during execution, all verified against the real
+schema or hardware:
+
+- The oneof is `type`, lowercase, not `Type`.
+- The schema is proto2; `responseType` is required with a default, and a
+  proto2 default does not satisfy required-ness on serialize.
+- `AuditionPreset` carries `presetData`, not `data`.
+- `ExitAuditionPreset` carries `exit`, not `request`.
+- `hidapi` exposes `hid.device()` with a separate `.open()`, not `hid.Device()`.
+- `hidapi` treats a read timeout of 0 as blocking, not polling.
+- The amp emits unprompted status messages, so requests must drain stale input.
+- The real amp uses `DUBS_MetalEvh3`, `DUBS_Silvertone`, `DUBS_ArenaReverb` and
+  `DUBS_StepFilter`, which the reference data did not contain.
+- Parameter range checks were dropped entirely: factory preset 14 really does
+  store `mid = -4.400125` and `treb` as an integer.
+
+---
+
 ## Global Constraints
 
 - Python `>=3.12`. Package managed by `uv`. Tests run with `uv run pytest`.
