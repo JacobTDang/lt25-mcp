@@ -16,7 +16,13 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from lt25_mcp.library import SLOT_MAX, WRITABLE_MIN, SlotError, latest_backup, read_preset
-from lt25_mcp.preset import Preset
+from lt25_mcp.dsp_catalog import EFFECT_NODES
+from lt25_mcp.preset import Preset, PresetError
+
+
+# The amp stores tone controls as floats and may round them on the way in and
+# out. Anything larger than this is a real disagreement, not a rounding step.
+PARAM_TOLERANCE = 1e-4
 
 
 class WriteRefused(SlotError):
@@ -81,11 +87,49 @@ def write_preset(session, preset: Preset, slot: int, *, backup_root: Path) -> No
         }
     )
 
-    written = read_preset(session, slot)
-    expected = preset.to_dict()
-    if written.get("info", {}).get("displayName") != expected["info"]["displayName"]:
+    try:
+        written = Preset.from_dict(read_preset(session, slot))
+    except (PresetError, ValueError) as exc:
+        # A read-back the preset model cannot parse is a failed write, not a
+        # parsing problem for the caller to puzzle over.
         raise WriteRefused(
-            f"slot {slot} read back as "
-            f"{written.get('info', {}).get('displayName')!r} which did not match "
-            f"{expected['info']['displayName']!r}; the write may not have landed"
+            f"slot {slot} read back as something that is not a valid preset: {exc}"
+        ) from exc
+    difference = first_difference(preset, written)
+    if difference is not None:
+        raise WriteRefused(
+            f"slot {slot} did not read back as written: {difference}"
         )
+
+
+def first_difference(sent: Preset, written: Preset) -> str | None:
+    """The first meaningful field where a read-back disagrees with what was sent.
+
+    Compares the name, the amp model and all its parameters, and each effect
+    slot's unit - not the whole document. The amp stamps its own `timestamp`
+    and related metadata on save, so a full comparison would raise on every
+    successful write.
+    """
+    if sent.display_name != written.display_name:
+        return f"name is {written.display_name!r}, expected {sent.display_name!r}"
+    if sent.amp_model != written.amp_model:
+        return f"amp model is {written.amp_model!r}, expected {sent.amp_model!r}"
+
+    expected_params = sent.params("amp")
+    actual_params = written.params("amp")
+    for name, value in expected_params.items():
+        if name not in actual_params:
+            return f"amp parameter {name!r} is missing"
+        actual = actual_params[name]
+        if isinstance(value, float) or isinstance(actual, float):
+            if abs(float(actual) - float(value)) > PARAM_TOLERANCE:
+                return f"amp {name} is {actual}, expected {value}"
+        elif actual != value:
+            return f"amp {name} is {actual!r}, expected {value!r}"
+
+    for node in EFFECT_NODES:
+        if sent.unit(node) != written.unit(node):
+            return (
+                f"{node} is {written.unit(node)!r}, expected {sent.unit(node)!r}"
+            )
+    return None

@@ -12,12 +12,18 @@ here as a handshake that never gets acknowledged.
 from __future__ import annotations
 
 import threading
+import time
 
 from lt25_mcp.messages import decode_message, encode_message, which_payload
 from lt25_mcp.transport import Transport
 
 HEARTBEAT_INTERVAL = 0.5
 DEFAULT_TIMEOUT_MS = 3000
+
+# A request may wait through several empty reads. The amp drops a client it
+# has not heard from for about a second, so the wait itself emits heartbeats
+# rather than leaving the connection silent while holding the lock.
+MAX_QUIET_READS = 8
 
 # How many unrelated messages to step over while waiting for an expected reply.
 # The amp emits status messages whenever a knob moves, so a request issued
@@ -45,6 +51,7 @@ class Session:
         self._thread: threading.Thread | None = None
         self._open = False
         self._closed = False
+        self._last_sent = 0.0
         self.stale_packets_dropped = 0
 
     @property
@@ -87,10 +94,23 @@ class Session:
             # belongs to the request we are about to make.
             self.stale_packets_dropped += self._transport.drain()
             self._transport.send(encode_message(**payload))
-            for _ in range(MAX_SKIPPED_REPLIES):
+            self._last_sent = time.monotonic()
+
+            quiet = 0
+            skipped = 0
+            while skipped < MAX_SKIPPED_REPLIES:
                 raw = self._transport.receive(timeout_ms=timeout_ms)
                 if raw is None:
-                    raise SessionError(f"no reply to {sent} within {timeout_ms}ms")
+                    quiet += 1
+                    if quiet >= MAX_QUIET_READS:
+                        raise SessionError(
+                            f"no reply to {sent} after {quiet} silent reads"
+                        )
+                    # Keep the session alive while we wait, rather than letting
+                    # the amp time us out because a reply was slow.
+                    self._beat_if_due()
+                    continue
+                skipped += 1
                 reply = decode_message(raw)
                 if expect is None or which_payload(reply) == expect:
                     return reply
@@ -98,6 +118,21 @@ class Session:
             f"no reply to {sent} matching {expect!r} after "
             f"{MAX_SKIPPED_REPLIES} unrelated messages"
         )
+
+    def _beat_if_due(self) -> None:
+        """Emit a heartbeat if the amp has not heard from us recently.
+
+        Called from inside the request path, which already holds the lock, so
+        this never contends with the background thread.
+        """
+        now = time.monotonic()
+        if now - self._last_sent < self._heartbeat_interval:
+            return
+        try:
+            self._transport.send(encode_message(heartbeat={"dummyField": True}))
+        except Exception:
+            return
+        self._last_sent = now
 
     def firmware_version(self) -> str:
         reply = self.request(
@@ -132,8 +167,11 @@ class Session:
                 with self._lock:
                     if self._stop.is_set():
                         return
+                    if time.monotonic() - self._last_sent < self._heartbeat_interval:
+                        continue  # a request already spoke to the amp recently
                     try:
                         self._transport.send(message)
+                        self._last_sent = time.monotonic()
                     except Exception:
                         # The transport is gone; stop rather than spin.
                         return

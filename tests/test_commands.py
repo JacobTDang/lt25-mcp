@@ -114,11 +114,68 @@ class TestWrite:
 
     def test_verifies_by_reading_back(self, sample_preset, fake_backup):
         """A write that does not land must fail loudly, not silently succeed."""
-        session = RecordingSession(verify_preset={"info": {"displayName": "SOMETHING ELSE"}})
-        with pytest.raises(WriteRefused, match="did not match"):
+        wrong = sample_preset.clone()
+        wrong.display_name = "SOMETHING ELSE"
+        session = RecordingSession(verify_preset=wrong.to_dict())
+        with pytest.raises(WriteRefused, match="name is"):
+            write_preset(session, sample_preset, 47, backup_root=fake_backup.parent)
+
+    def test_an_unparseable_read_back_is_a_failed_write(self, sample_preset, fake_backup):
+        session = RecordingSession(verify_preset={"info": {"displayName": "X"}})
+        with pytest.raises(WriteRefused, match="not a valid preset"):
             write_preset(session, sample_preset, 47, backup_root=fake_backup.parent)
 
     def test_read_back_happens_after_the_write(self, sample_preset, fake_backup):
         session = RecordingSession(verify_preset=sample_preset.to_dict())
         write_preset(session, sample_preset, 47, backup_root=fake_backup.parent)
         assert session.calls.index("savePresetAs") < session.calls.index("retrievePreset")
+
+
+class TestWriteVerifiesWhatMatters:
+    """A read-back that only checks the name lets a mangled write report success."""
+
+    def _session_returning(self, preset, **mutate):
+        raw = preset.to_dict()
+        amp = [n for n in raw["audioGraph"]["nodes"] if n["nodeId"] == "amp"][0]
+        for key, value in mutate.items():
+            if key == "amp_model":
+                amp["FenderId"] = value
+            elif key == "reverb":
+                [n for n in raw["audioGraph"]["nodes"] if n["nodeId"] == "reverb"][0][
+                    "FenderId"] = value
+            else:
+                amp["dspUnitParameters"][key] = value
+        return RecordingSession(verify_preset=raw)
+
+    def test_a_wrong_gain_is_caught(self, sample_preset, fake_backup):
+        session = self._session_returning(sample_preset, gain=0.99)
+        with pytest.raises(WriteRefused, match="gain"):
+            write_preset(session, sample_preset, 47, backup_root=fake_backup.parent)
+
+    def test_a_wrong_amp_model_is_caught(self, sample_preset, fake_backup):
+        session = self._session_returning(sample_preset, amp_model="DUBS_Jcm800")
+        with pytest.raises(WriteRefused, match="amp model|FenderId|DUBS_Jcm800"):
+            write_preset(session, sample_preset, 47, backup_root=fake_backup.parent)
+
+    def test_a_dropped_effect_is_caught(self, sample_preset, fake_backup):
+        session = self._session_returning(sample_preset, reverb="DUBS_Passthru")
+        with pytest.raises(WriteRefused, match="reverb"):
+            write_preset(session, sample_preset, 47, backup_root=fake_backup.parent)
+
+    def test_an_exact_read_back_passes(self, sample_preset, fake_backup):
+        session = self._session_returning(sample_preset)
+        write_preset(session, sample_preset, 47, backup_root=fake_backup.parent)
+
+    def test_amp_set_metadata_does_not_trigger_a_false_alarm(self, sample_preset, fake_backup):
+        """The amp stamps its own timestamp; that is not a failed write."""
+        raw = sample_preset.to_dict()
+        raw["info"]["timestamp"] = 1234567890
+        raw["info"]["is_factory_default"] = False
+        write_preset(RecordingSession(verify_preset=raw), sample_preset, 47,
+                     backup_root=fake_backup.parent)
+
+    def test_the_error_names_the_field_that_differs(self, sample_preset, fake_backup):
+        session = self._session_returning(sample_preset, gain=0.99)
+        with pytest.raises(WriteRefused) as exc:
+            write_preset(session, sample_preset, 47, backup_root=fake_backup.parent)
+        assert "0.99" in str(exc.value) or "gain" in str(exc.value)

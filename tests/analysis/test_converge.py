@@ -169,3 +169,58 @@ class TestDescribe:
 
     def test_says_when_converged(self):
         assert "CONVERGED" in compare(features(), features()).describe()
+
+
+class TestBacktracking:
+    """Computing `improving` and ignoring it means a bad move compounds."""
+
+    def _session(self):
+        return Session(target=features())
+
+    def test_an_improving_step_is_kept(self):
+        s = self._session()
+        s.step({"bass": 5.0}, compare(features(), features(low_energy_ratio=0.50)))
+        after = s.step({"bass": 4.0}, compare(features(), features(low_energy_ratio=0.30)))
+        assert after.reverted is False
+        assert after.knobs["bass"] == pytest.approx(4.0)
+
+    def test_a_worsening_step_reverts_to_the_best(self):
+        s = self._session()
+        s.step({"bass": 5.0}, compare(features(), features(low_energy_ratio=0.28)))
+        worse = s.step({"bass": 9.0}, compare(features(), features(low_energy_ratio=0.70)))
+        assert worse.reverted is True
+        assert worse.knobs["bass"] == pytest.approx(5.0)
+
+    def test_reverting_halves_the_step_size(self):
+        s = self._session()
+        s.step({"bass": 5.0}, compare(features(), features(low_energy_ratio=0.28)))
+        before = s.step_scale
+        s.step({"bass": 9.0}, compare(features(), features(low_energy_ratio=0.70)))
+        assert s.step_scale == pytest.approx(before / 2)
+
+    def test_the_scale_shrinks_the_applied_move(self):
+        s = self._session()
+        result = compare(features(), features(low_energy_ratio=0.60))
+        full = s.apply({"bass": 5.0}, result)["bass"]
+        s.step_scale = 0.5
+        half = s.apply({"bass": 5.0}, result)["bass"]
+        assert abs(half - 5.0) == pytest.approx(abs(full - 5.0) / 2, abs=1e-6)
+
+    def test_it_gives_up_after_repeated_regressions(self):
+        s = self._session()
+        s.step({"bass": 5.0}, compare(features(), features(low_energy_ratio=0.28)))
+        for _ in range(3):
+            s.step({"bass": 9.0}, compare(features(), features(low_energy_ratio=0.70)))
+        assert s.exhausted
+
+    def test_a_run_that_keeps_improving_is_not_exhausted(self):
+        s = self._session()
+        for ratio in (0.60, 0.45, 0.32, 0.27):
+            s.step({"bass": 5.0}, compare(features(), features(low_energy_ratio=ratio)))
+        assert not s.exhausted
+
+    def test_best_is_reported_not_last(self):
+        s = self._session()
+        s.step({"bass": 5.0}, compare(features(), features(low_energy_ratio=0.28)))
+        s.step({"bass": 9.0}, compare(features(), features(low_energy_ratio=0.70)))
+        assert s.best.index == 1

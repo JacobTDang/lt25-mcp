@@ -176,6 +176,14 @@ def _clamp(delta: float) -> float:
     return max(-MAX_STEP, min(MAX_STEP, delta))
 
 
+# Consecutive iterations that fail to improve before the run gives up. Past
+# this, the moves are not finding the target and more of them is noise.
+MAX_REGRESSIONS = 3
+
+# Every revert halves the step, so the loop closes in rather than oscillating.
+REVERT_SCALE = 0.5
+
+
 @dataclass
 class Iteration:
     index: int
@@ -183,6 +191,8 @@ class Iteration:
     knobs: dict[str, float]
     moves: list[Move]
     converged: bool
+    reverted: bool = False
+    """True when this iteration was worse than the best and was rolled back."""
 
 
 @dataclass
@@ -191,6 +201,9 @@ class Session:
 
     target: ToneFeatures
     history: list[Iteration] = field(default_factory=list)
+    step_scale: float = 1.0
+    """Shrinks on every revert, so a loop that overshoots closes in."""
+    regressions: int = 0
 
     def record(self, comparison: Comparison, knobs: dict[str, float]) -> Iteration:
         iteration = Iteration(
@@ -214,12 +227,41 @@ class Session:
     def best(self) -> Iteration | None:
         return min(self.history, key=lambda i: i.distance) if self.history else None
 
+    @property
+    def exhausted(self) -> bool:
+        """Whether the run has stopped making progress and should stop."""
+        return self.regressions >= MAX_REGRESSIONS
+
     def apply(self, knobs: dict[str, float], comparison: Comparison) -> dict[str, float]:
-        """Apply an iteration's moves to knob positions, staying in range."""
+        """Apply an iteration's moves to knob positions, staying in range.
+
+        Moves are scaled by `step_scale`, which halves each time the loop
+        overshoots, so a run that goes past the target closes in on it instead
+        of oscillating around it.
+        """
         adjusted = dict(knobs)
         for move in comparison.moves:
             if move.control in adjusted:
                 adjusted[move.control] = max(
-                    0.0, min(10.0, adjusted[move.control] + move.delta)
+                    0.0, min(10.0, adjusted[move.control] + move.delta * self.step_scale)
                 )
         return adjusted
+
+    def step(self, knobs: dict[str, float], comparison: Comparison) -> Iteration:
+        """Record an iteration, rolling back if it made the tone worse.
+
+        A move that increases distance is not a step towards the target, and
+        applying the next move from that worse position compounds the mistake.
+        The knobs revert to the best position seen and the step size halves.
+        """
+        best_before = self.best
+        iteration = self.record(comparison, knobs)
+
+        if best_before is not None and iteration.distance > best_before.distance:
+            iteration.reverted = True
+            iteration.knobs = dict(best_before.knobs)
+            self.step_scale *= REVERT_SCALE
+            self.regressions += 1
+        else:
+            self.regressions = 0
+        return iteration

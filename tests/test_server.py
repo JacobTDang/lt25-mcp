@@ -115,3 +115,28 @@ class TestAuditionHoldsTheSession:
     def test_normal_tools_still_close_when_nothing_is_held(self, stub_amp):
         call(srv.get_preset)(1)
         assert StubSession.instances[-1].closed is True
+
+
+class TestHeldSessionIsGuarded:
+    def test_the_held_session_has_a_lock(self):
+        import threading
+
+        assert isinstance(srv._held_lock, type(threading.Lock()))
+
+    def test_concurrent_auditions_leave_exactly_one_session_open(self, stub_amp):
+        import threading
+
+        errors = []
+
+        def go():
+            try:
+                call(srv.audition_preset)(json.dumps(stub_amp))
+            except Exception as exc:  # pragma: no cover - surfaced by the assert
+                errors.append(exc)
+
+        threads = [threading.Thread(target=go) for _ in range(6)]
+        for t in threads: t.start()
+        for t in threads: t.join(timeout=10)
+        assert not errors
+        open_sessions = [s for s in StubSession.instances if not s.closed]
+        assert len(open_sessions) == 1

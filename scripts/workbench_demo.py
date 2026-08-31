@@ -114,18 +114,26 @@ def main(argv: list[str] | None = None) -> int:
                     {"control": m.control, "delta": m.delta, "why": m.why}
                     for m in result.moves
                 ]
-                iteration = session.record(result, knobs)
+                iteration = session.step(knobs, result)
+                knobs = dict(iteration.knobs)
                 state.iterations = [
-                    {"index": i.index, "distance": i.distance} for i in session.history
+                    {"index": i.index, "distance": i.distance, "reverted": i.reverted}
+                    for i in session.history
                 ]
             board.publish()
 
             trend = "" if session.improving is None else (
                 " (closer)" if session.improving else " (further)")
-            board.note(f"iteration {step}: distance {result.distance:.4f}{trend}")
+            note = f"iteration {step}: distance {result.distance:.4f}{trend}"
+            if iteration.reverted:
+                note += f" - reverted to best, step scale {session.step_scale:.2f}"
+            board.note(note)
 
             if result.converged:
                 board.note("converged - stopping")
+                break
+            if session.exhausted:
+                board.note("no longer improving - stopping at the best result")
                 break
             knobs = session.apply(knobs, result)
             time.sleep(args.pause)

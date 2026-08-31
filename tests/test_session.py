@@ -192,3 +192,61 @@ class TestCloseIsSafe:
         transport = ScriptedTransport()
         Session(transport, heartbeat=False).close()
         assert transport.closed
+
+
+class TestHeartbeatDuringLongRequests:
+    """The amp drops a client it stops hearing from. A slow request must not
+    starve the heartbeat, or a 60-slot backup dies part-way."""
+
+    class SlowTransport(ScriptedTransport):
+        """Answers only after several empty reads, like a busy amp.
+
+        Starts responsive so the handshake completes, then `arm()` makes the
+        next request wait - the handshake is not the thing under test.
+        """
+
+        def __init__(self, replies):
+            super().__init__(replies)
+            self._quiet = 0
+
+        def arm(self, quiet_reads):
+            self._quiet = quiet_reads
+            return self
+
+        def receive(self, timeout_ms=1000):
+            if self._quiet > 0:
+                self._quiet -= 1
+                return None
+            return super().receive(timeout_ms)
+
+    def _open(self, replies, quiet_reads):
+        transport = self.SlowTransport(replies)
+        session = Session(transport, heartbeat=False, heartbeat_interval=0.0)
+        session.open()
+        transport.arm(quiet_reads)
+        return session, transport
+
+    def test_a_slow_reply_still_emits_heartbeats(self):
+        reply = encode_message(firmwareVersionStatus={"version": "2.1.4"})
+        session, transport = self._open([*handshake_replies(), reply], quiet_reads=4)
+        session.request(expect="firmwareVersionStatus",
+                        firmwareVersionRequest={"request": True}, timeout_ms=5)
+        assert "heartbeat" in transport.sent_kinds()
+
+    def test_a_fast_reply_does_not_spam_heartbeats(self):
+        replies = [*handshake_replies(),
+                   encode_message(firmwareVersionStatus={"version": "2.1.4"})]
+        session, transport = make_session(replies)
+        session.open()
+        session.request(firmwareVersionRequest={"request": True})
+        assert transport.sent_kinds().count("heartbeat") == 0
+
+    def test_the_reply_still_arrives(self):
+        reply = encode_message(firmwareVersionStatus={"version": "2.1.4"})
+        session, _ = self._open([*handshake_replies(), reply], quiet_reads=3)
+        assert session.firmware_version() == "2.1.4"
+
+    def test_a_genuinely_dead_amp_still_times_out(self):
+        session, _ = self._open(handshake_replies(), quiet_reads=999)
+        with pytest.raises(SessionError, match="no reply"):
+            session.request(firmwareVersionRequest={"request": True}, timeout_ms=1)

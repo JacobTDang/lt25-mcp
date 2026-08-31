@@ -22,6 +22,22 @@ are *not* comparable against a recording off the internet, which has been
 mixed and mastered, so nothing here compares a player's output level to a
 target clip's. Brightness is compared, cautiously, because spectral tilt
 survives mastering better than level does.
+
+What a capture actually contains
+--------------------------------
+The amp's USB output is post-model and post-cabinet, and it carries no dry
+signal, so a capture is **guitar plus amp model plus cab sim** - never the
+guitar alone. The difference between two guitars still means something because
+the reference preset is held constant, so the amp's contribution is the same in
+both captures and cancels.
+
+That cancellation only holds while the reference model is close to linear. Amp
+models saturate: through a driven model, a hotter guitar is compressed harder,
+and the measured difference understates the real one. `REFERENCE_PRESET_AMP` is
+therefore `DUBS_LinearGain` - SUPER CLEAN, the amp's transparent preamp - and
+changing it to a model that breaks up would quietly corrupt every comparison.
+Profiles record which reference they were captured through, and `adapt` refuses
+to compare across different ones.
 """
 
 from __future__ import annotations
@@ -83,6 +99,9 @@ class GuitarProfile:
 
     sustain_s: float
     pickups: str = "unknown"
+    reference_amp: str = REFERENCE_PRESET_AMP
+    """The amp model the capture was made through. Profiles taken through
+    different references are not comparable."""
     is_reference: bool = False
     captured_at: str = ""
     notes: str = ""
@@ -201,6 +220,12 @@ def adapt(
     adjusted = dict(knobs)
     if reference is None or reference.name == playing.name:
         return adjusted, []
+    if playing.reference_amp != reference.reference_amp:
+        raise GuitarError(
+            f"{playing.name} was captured through {playing.reference_amp} but "
+            f"{reference.name} through {reference.reference_amp}; recapture one "
+            "of them so the amp's contribution cancels"
+        )
 
     notes: list[str] = []
 

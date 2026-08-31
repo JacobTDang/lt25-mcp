@@ -142,3 +142,25 @@ class TestAdapt:
         a = profile("a")
         b = profile("b", output=a.output_dbfs, centroid=a.centroid_hz)
         assert adapt(BASE, b, a)[1] == []
+
+
+class TestReferenceConsistency:
+    def test_profiles_record_their_reference_amp(self):
+        from lt25_mcp.guitar import REFERENCE_PRESET_AMP
+
+        assert profile("strat").reference_amp == REFERENCE_PRESET_AMP
+
+    def test_comparing_across_references_raises(self):
+        from lt25_mcp.guitar import GuitarError
+
+        a = profile("strat")
+        b = profile("lp", output=-14.0)
+        b.reference_amp = "DUBS_Jcm800"
+        with pytest.raises(GuitarError, match="recapture"):
+            adapt(BASE, b, a)
+
+    def test_the_reference_amp_is_a_linear_model(self):
+        """Saturation in the reference would distort every comparison."""
+        from lt25_mcp.guitar import REFERENCE_PRESET_AMP
+
+        assert REFERENCE_PRESET_AMP == "DUBS_LinearGain"

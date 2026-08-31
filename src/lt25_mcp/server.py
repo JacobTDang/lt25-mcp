@@ -15,6 +15,7 @@ Tools return plain dictionaries, never protobuf objects.
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Any
@@ -36,10 +37,28 @@ from lt25_mcp.guitar import (
 )
 from lt25_mcp.rig import PICKUP_RATIONALE, PICKUP_TYPES, Rig, RigError, adapt_knobs, slots_to_leave_empty
 from lt25_mcp.session import Session
+from lt25_mcp.analysis.mapping import MappingError, describe_settings
 from lt25_mcp.transport import open_transport
 from lt25_mcp.tuning import STRUCTURAL_ADVICE, catalogue, remedy_for
 
 BACKUP_ROOT = Path(__file__).resolve().parents[2] / "backups"
+
+
+def _analysis_errors():
+    """Errors the analysis pipeline raises, surfaced to callers as ValueError."""
+    from lt25_mcp.analysis import cli as analysis_cli
+    from lt25_mcp.analysis.acquire import AcquisitionError
+    from lt25_mcp.analysis.features import FeatureError
+    from lt25_mcp.analysis.plots import PlotError
+    from lt25_mcp.analysis.stems import StemError
+
+    return (
+        analysis_cli.PipelineError, AcquisitionError, StemError,
+        FeatureError, PlotError, MappingError, PresetError,
+    )
+
+
+_ANALYSIS_ERRORS = _analysis_errors()
 
 INSTRUCTIONS = f"""\
 Controls a Fender Mustang LT25 guitar amplifier over USB, so you can build and
@@ -94,6 +113,18 @@ one instrument sounds wrong through another. `tune_preset(apply_rig=True)`
 uses a measured profile when there is one and falls back to the prior
 otherwise, and always says which.
 
+## Working from a recording
+
+`analyse_clip` takes a URL or a local file and returns a preset, the
+measurements behind it, and how much to trust the amp-model choice. It touches
+no hardware, so the result still has to be auditioned.
+
+Closing the gap by ear is the loop above. Closing it by measurement is
+`record_take` then `compare_to_target`, which says which knob to move and by
+how much. Be careful with that number: every take is played by hand, so part
+of any difference is the playing rather than the amp. A small change between
+takes is noise, not progress.
+
 ## Rules
 
 - Only slots {WRITABLE_MIN}-{SLOT_MAX} are writable. Slots {SLOT_MIN}-30 are
@@ -119,21 +150,26 @@ def _session() -> Session:
 # Only one program can hold the amp's control channel, so while a session is
 # held every other tool reuses it rather than opening a second.
 _held: Session | None = None
+_held_lock = threading.Lock()
+"""Guards _held: tool calls can arrive concurrently, and the amp accepts one."""
 
 
 def _release_held() -> None:
+    """Close and clear the held session, if any. Safe to call concurrently."""
     global _held
-    if _held is not None:
+    with _held_lock:
         session, _held = _held, None
+    if session is not None:
         session.close()
 
 
 @contextmanager
 def _amp():
     """A session for one tool call, reusing a held audition session if there is one."""
-    global _held
-    if _held is not None:
-        yield _held
+    with _held_lock:
+        held = _held
+    if held is not None:
+        yield held
         return
     with _session() as session:
         yield session
@@ -196,14 +232,20 @@ def audition_preset(preset_json: str) -> dict[str, Any]:
     except Exception:
         session.close()
         raise
-    _held = session
+    with _held_lock:
+        previous, _held = _held, session
+    if previous is not None:
+        # Another call raced us and parked a session; do not leak it.
+        previous.close()
     return {"auditioning": True, "summary": preset.summary()}
 
 
 @server.tool(description="Stop auditioning and return the amp to its loaded preset.")
 def stop_audition() -> dict[str, Any]:
-    if _held is not None:
-        exit_audition(_held)
+    with _held_lock:
+        held = _held
+    if held is not None:
+        exit_audition(held)
         _release_held()
         return {"auditioning": False}
     with _amp() as session:
@@ -474,6 +516,128 @@ def set_rig(
     path = rig.save()
     return {"saved_to": str(path), "summary": rig.describe(),
             "pickup_effect": PICKUP_RATIONALE[rig.pickups]}
+
+
+@server.tool(
+    description=(
+        "Turn a clip into a preset: download or read audio, isolate the guitar, "
+        "measure it, and build a preset from a base one. Pass a URL or a local "
+        "audio path, not both. Touches no hardware - audition or save the "
+        "result afterwards."
+    )
+)
+def analyse_clip(
+    base_preset_json: str,
+    url: str | None = None,
+    audio_path: str | None = None,
+    start: float | None = None,
+    end: float | None = None,
+    name: str | None = None,
+    separate: bool = True,
+) -> dict[str, Any]:
+    import tempfile
+
+    from lt25_mcp.analysis import cli as analysis_cli
+
+    try:
+        result = analysis_cli.analyse(
+            url=url,
+            audio=Path(audio_path) if audio_path else None,
+            start=start,
+            end=end,
+            base=Preset.from_dict(json.loads(base_preset_json)),
+            work_dir=Path(tempfile.mkdtemp(prefix="lt25-analyse-")),
+            name=name,
+            separate=separate,
+        )
+    except _ANALYSIS_ERRORS as exc:
+        raise ValueError(str(exc)) from exc
+
+    return {
+        "preset_json": json.dumps(result.preset.to_dict()),
+        "summary": describe_settings(result.preset, choice=result.choice),
+        "amp_model": result.choice.amp_model,
+        "confidence": result.choice.confidence,
+        "reason": result.choice.reason,
+        "alternatives": result.choice.alternatives,
+        "measurements": result.features.to_dict(),
+        "guitar_stem": str(result.stem) if result.stem else None,
+        "spectrogram": str(result.spectrogram) if result.spectrogram else None,
+        "note": (
+            "Confidence reflects distance from the nearest gain boundary. Below "
+            "60% the alternatives are worth auditioning too."
+        ),
+    }
+
+
+@server.tool(
+    description=(
+        "Measure one audio file: brightness, band balance, saturation, key and "
+        "tuning offset. Use it to inspect a captured take or a target clip."
+    )
+)
+def measure_audio(audio_path: str) -> dict[str, Any]:
+    from lt25_mcp.analysis.features import extract
+
+    try:
+        features = extract(Path(audio_path))
+    except _ANALYSIS_ERRORS as exc:
+        raise ValueError(str(exc)) from exc
+    return {"measurements": features.to_dict(), "summary": features.describe()}
+
+
+@server.tool(
+    description=(
+        "Compare what the amp is producing against a target, and say which knob "
+        "to move next. Both paths should be audio of guitar alone - a target "
+        "clip's guitar stem, and a recording of the player through the amp."
+    )
+)
+def compare_to_target(target_path: str, current_path: str) -> dict[str, Any]:
+    from lt25_mcp.analysis.converge import compare
+    from lt25_mcp.analysis.features import extract
+
+    try:
+        target = extract(Path(target_path))
+        current = extract(Path(current_path))
+    except _ANALYSIS_ERRORS as exc:
+        raise ValueError(str(exc)) from exc
+
+    result = compare(target, current)
+    return {
+        "distance": result.distance,
+        "converged": result.converged,
+        "band_gaps": result.band_gaps,
+        "centroid_octaves": result.centroid_octaves,
+        "moves": [
+            {"control": m.control, "delta_on_0_to_10_scale": m.delta, "why": m.why}
+            for m in result.moves
+        ],
+        "summary": result.describe(),
+        "caveat": (
+            "Every take is played by hand, so some of this difference is the "
+            "playing rather than the amp. Treat a small distance change as noise."
+        ),
+    }
+
+
+@server.tool(
+    description=(
+        "Record the player through the amp's USB audio output. Tell them what "
+        "to play and wait until they are ready before calling this."
+    )
+)
+def record_take(seconds: float = 20.0) -> dict[str, Any]:
+    import tempfile
+
+    from lt25_mcp.analysis.capture import CaptureError, record
+
+    dest = Path(tempfile.mkdtemp(prefix="lt25-take-")) / "take.wav"
+    try:
+        path = record(dest, seconds)
+    except CaptureError as exc:
+        raise ValueError(str(exc)) from exc
+    return {"audio_path": str(path), "seconds": seconds}
 
 
 @server.prompt(

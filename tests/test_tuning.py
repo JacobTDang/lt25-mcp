@@ -130,3 +130,71 @@ class TestDescribeTool:
     def test_lists_every_effect_slot(self, stub_amp):
         result = call(srv.describe_preset)(json.dumps(stub_amp))
         assert set(result["effects"]) == {"stomp", "mod", "delay", "reverb"}
+
+
+class TestAnalysisToolsExposed:
+    """The point of the server is a clip-to-tone workflow; amp control alone
+    leaves the analysis half reachable only from a shell."""
+
+    def test_the_pipeline_is_reachable(self):
+        import asyncio
+
+        names = {t.name for t in asyncio.run(srv.server.list_tools())}
+        assert {"analyse_clip", "measure_audio", "compare_to_target",
+                "record_take"} <= names
+
+    def test_measure_audio_reports_measurements(self, tmp_path):
+        import math
+
+        import numpy as np
+        import soundfile as sf
+
+        t = np.linspace(0, 1.5, 33075, endpoint=False)
+        path = tmp_path / "a.wav"
+        sf.write(path, (0.5 * np.sin(2 * math.pi * 440 * t)).astype(np.float32), 22050)
+        out = call(srv.measure_audio)(str(path))
+        assert "spectral_centroid_hz" in out["measurements"]
+        assert "centroid" in out["summary"]
+
+    def test_measure_audio_reports_a_missing_file_cleanly(self, tmp_path):
+        with pytest.raises(ValueError, match="no such audio file"):
+            call(srv.measure_audio)(str(tmp_path / "nope.wav"))
+
+    def test_compare_needs_two_real_files(self, tmp_path):
+        with pytest.raises(ValueError, match="no such audio file"):
+            call(srv.compare_to_target)(str(tmp_path / "a.wav"), str(tmp_path / "b.wav"))
+
+    def test_compare_reports_moves_and_the_playing_caveat(self, tmp_path):
+        import math
+
+        import numpy as np
+        import soundfile as sf
+
+        t = np.linspace(0, 1.5, 33075, endpoint=False)
+        for name, freq in (("a.wav", 300), ("b.wav", 2500)):
+            sf.write(tmp_path / name,
+                     (0.5 * np.sin(2 * math.pi * freq * t)).astype(np.float32), 22050)
+        out = call(srv.compare_to_target)(str(tmp_path / "a.wav"), str(tmp_path / "b.wav"))
+        assert out["distance"] > 0
+        assert out["moves"]
+        assert "playing" in out["caveat"]
+
+    def test_analyse_clip_refuses_both_url_and_path(self, stub_amp, tmp_path):
+        with pytest.raises(ValueError, match="exactly one"):
+            call(srv.analyse_clip)(json.dumps(stub_amp), url="https://x",
+                                   audio_path=str(tmp_path / "a.wav"))
+
+    def test_analysis_tools_never_open_the_amp(self, stub_amp, tmp_path):
+        """Analysis must not contend for the amp's single control channel."""
+        import math
+
+        import numpy as np
+        import soundfile as sf
+        from helpers import StubSession
+
+        t = np.linspace(0, 1.5, 33075, endpoint=False)
+        path = tmp_path / "a.wav"
+        sf.write(path, (0.5 * np.sin(2 * math.pi * 440 * t)).astype(np.float32), 22050)
+        before = len(StubSession.instances)
+        call(srv.measure_audio)(str(path))
+        assert len(StubSession.instances) == before
