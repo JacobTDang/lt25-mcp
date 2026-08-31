@@ -20,6 +20,8 @@ import sys
 import time
 from pathlib import Path
 
+import _bootstrap  # noqa: F401  (puts src/ on sys.path)
+
 from lt25_mcp.analysis.capture import CaptureError, record, wait_for_playing
 from lt25_mcp.analysis.corpus import Corpus
 from lt25_mcp.commands import audition, exit_audition

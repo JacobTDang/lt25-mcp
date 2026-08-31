@@ -14,6 +14,8 @@ import sys
 import time
 from pathlib import Path
 
+import _bootstrap  # noqa: F401  (puts src/ on sys.path)
+
 from lt25_mcp.analysis.mapping import describe_settings
 from lt25_mcp.commands import audition_scope
 from lt25_mcp.preset import Preset

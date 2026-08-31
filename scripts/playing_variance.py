@@ -20,6 +20,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import _bootstrap  # noqa: F401  (puts src/ on sys.path)
+
 from lt25_mcp.analysis.capture import CaptureError, record
 from lt25_mcp.analysis.converge import compare
 from lt25_mcp.analysis.features import FeatureError, extract

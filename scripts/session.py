@@ -24,6 +24,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import _bootstrap  # noqa: F401  (puts src/ on sys.path)
+
 from lt25_mcp.analysis.capture import CaptureError, record
 from lt25_mcp.analysis.converge import CONVERGED, compare
 from lt25_mcp.analysis.features import FeatureError, extract
@@ -131,8 +133,11 @@ def main(argv: list[str] | None = None) -> int:
     print("\n" + "=" * 62)
     print("GUITAR PROFILE")
     print(profile.describe())
-    print(f"  {'reference' if profile.is_reference else 'compared against '
-          + (library.reference.name if library.reference else '?')}")
+    if profile.is_reference:
+        print("  reference guitar")
+    else:
+        against = library.reference.name if library.reference else "?"
+        print(f"  compared against {against}")
 
     # ---- how much of a take is the playing -------------------------------
     print("\n" + "=" * 62)

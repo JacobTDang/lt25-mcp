@@ -6,9 +6,13 @@ from pathlib import Path
 
 import pytest
 
-spec = importlib.util.spec_from_file_location(
-    "restore", Path(__file__).parent.parent / "scripts" / "restore.py"
-)
+SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+# The script imports _bootstrap, which lives beside it and is only importable
+# when the script's own directory is on the path - as it is when run directly.
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+
+spec = importlib.util.spec_from_file_location("restore", SCRIPTS / "restore.py")
 restore = importlib.util.module_from_spec(spec)
 sys.modules["restore"] = restore
 spec.loader.exec_module(restore)

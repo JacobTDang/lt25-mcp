@@ -12,6 +12,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import _bootstrap  # noqa: F401  (puts src/ on sys.path)
+
 from lt25_mcp.library import backup_all
 from lt25_mcp.session import Session
 from lt25_mcp.transport import TransportError, open_transport

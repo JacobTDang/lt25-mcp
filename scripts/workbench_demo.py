@@ -17,6 +17,8 @@ import tempfile
 import time
 from pathlib import Path
 
+import _bootstrap  # noqa: F401  (puts src/ on sys.path)
+
 from lt25_mcp.analysis.converge import Session, compare
 from lt25_mcp.analysis.features import extract, log_spectrum
 from lt25_mcp.dashboard.chain import describe_chain

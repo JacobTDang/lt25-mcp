@@ -16,6 +16,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import _bootstrap  # noqa: F401  (puts src/ on sys.path)
+
 from lt25_mcp.analysis.corpus import (
     LABELS,
     MIN_PER_LABEL,

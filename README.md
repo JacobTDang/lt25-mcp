@@ -32,9 +32,15 @@ real YouTube clip through to a preset.
 
 ```bash
 uv sync
-./scripts/py -m pytest              # 200+ tests
-./scripts/py scripts/backup.py      # back up all 60 slots first
+python3 scripts/backup.py           # back up all 60 slots first
 ```
+
+Scripts run with any `python3`, from any directory. They put `src/` on the
+path themselves and re-execute under the project's interpreter if the one
+invoking them lacks the dependencies, so there is nothing to activate and no
+wrapper to remember.
+
+For the test suite, `./scripts/py -m pytest`.
 
 Quit Fender Tone LT Desktop before using any of this — only one program can
 hold the amp's control channel.

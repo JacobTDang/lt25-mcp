@@ -14,6 +14,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import _bootstrap  # noqa: F401  (puts src/ on sys.path)
+
 from lt25_mcp.analysis.features import FeatureError
 from lt25_mcp.analysis.stability import assess, knob_variance
 

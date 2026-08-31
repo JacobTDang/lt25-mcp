@@ -14,6 +14,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import _bootstrap  # noqa: F401  (puts src/ on sys.path)
+
 from lt25_mcp.commands import WriteRefused, write_preset
 from lt25_mcp.library import SLOT_MAX, WRITABLE_MIN, load_backup, latest_backup
 from lt25_mcp.preset import Preset
