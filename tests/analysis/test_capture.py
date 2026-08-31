@@ -152,3 +152,56 @@ class TestTakeLength:
 
         record(tmp_path / "a.wav", seconds=MIN_TAKE_SECONDS, device_index=2,
                runner=runner_for("", 0))
+
+
+class TestSilenceIsRefused:
+    """Nine silent captures once entered a labelled corpus and produced a
+    confident, wrong conclusion. Silence must fail, not measure."""
+
+    def _write(self, tmp_path, amplitude, name="a.wav"):
+        import math
+
+        import numpy as np
+        import soundfile as sf
+
+        t = np.linspace(0, 2.0, 44100 * 2, endpoint=False)
+        path = tmp_path / name
+        sf.write(path, (amplitude * np.sin(2 * math.pi * 220 * t)).astype(np.float32),
+                 44100, subtype="FLOAT")
+        return path
+
+    def test_an_idle_capture_raises(self, tmp_path):
+        from lt25_mcp.analysis.capture import check_has_signal
+
+        with pytest.raises(CaptureError, match="near-silence"):
+            check_has_signal(self._write(tmp_path, 0.003))
+
+    def test_the_error_says_what_to_check(self, tmp_path):
+        from lt25_mcp.analysis.capture import check_has_signal
+
+        with pytest.raises(CaptureError) as exc:
+            check_has_signal(self._write(tmp_path, 0.001))
+        assert "plugged in" in str(exc.value)
+
+    def test_a_real_take_passes(self, tmp_path):
+        from lt25_mcp.analysis.capture import check_has_signal
+
+        peak, rms = check_has_signal(self._write(tmp_path, 0.5))
+        assert peak > 0.4
+
+    def test_the_threshold_sits_between_idle_and_played(self, tmp_path):
+        """Measured: idle peaks 0.001-0.006, a real take peaks near 0.55."""
+        from lt25_mcp.analysis.capture import SILENCE_PEAK
+
+        assert 0.006 < SILENCE_PEAK < 0.5
+
+    def test_an_empty_file_raises(self, tmp_path):
+        import numpy as np
+        import soundfile as sf
+
+        from lt25_mcp.analysis.capture import check_has_signal
+
+        path = tmp_path / "empty.wav"
+        sf.write(path, np.zeros(0, dtype=np.float32), 44100)
+        with pytest.raises(CaptureError):
+            check_has_signal(path)

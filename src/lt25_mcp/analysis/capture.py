@@ -25,6 +25,14 @@ SAMPLE_RATE = 44100
 # 0.065, inside it.
 MIN_TAKE_SECONDS = 30.0
 
+# A capture this quiet is the amp idling, not someone playing. Measured: a
+# real take peaks around 0.55 with RMS near 0.09, while nine consecutive
+# captures of an idle amp peaked at 0.001-0.006 with RMS near 0.0002. Those
+# nine went into a labelled corpus and produced a confident, wrong finding
+# before anyone noticed they were silent.
+SILENCE_PEAK = 0.02
+SILENCE_RMS = 0.002
+
 Runner = Callable[[Sequence[str]], subprocess.CompletedProcess]
 
 
@@ -109,6 +117,7 @@ def record(
     device_index: int | None = None,
     runner: Runner | None = None,
     allow_short: bool = False,
+    allow_silent: bool = False,
 ) -> Path:
     """Record the amp's output to `dest`."""
     if seconds <= 0:
@@ -142,4 +151,30 @@ def record(
         raise CaptureError(f"ffmpeg capture failed: {(result.stderr or '').strip()[-400:]}")
     if runner is None and not dest.exists():
         raise CaptureError(f"ffmpeg reported success but {dest} was not written")
+    if runner is None and not allow_silent:
+        check_has_signal(dest)
     return dest
+
+
+def check_has_signal(path: Path) -> tuple[float, float]:
+    """Refuse a capture that is just the amp idling.
+
+    Silence is worse than a failure here: it parses, it measures, and it
+    produces plausible-looking numbers that are entirely noise floor.
+    """
+    import librosa
+    import numpy as np
+
+    y, _sr = librosa.load(str(path), sr=None, mono=True)
+    if y.size == 0:
+        raise CaptureError(f"{path} contains no audio")
+    peak = float(np.max(np.abs(y)))
+    rms = float(np.sqrt(np.mean(y**2)))
+    if peak < SILENCE_PEAK or rms < SILENCE_RMS:
+        raise CaptureError(
+            f"captured near-silence (peak {peak:.4f}, rms {rms:.5f}) - the amp "
+            "was idling, nobody was playing. A real take peaks around 0.5. "
+            "Check the guitar is plugged in, the amp volume is up, and that "
+            "someone is playing before the capture starts."
+        )
+    return peak, rms
