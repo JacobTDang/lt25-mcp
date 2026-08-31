@@ -45,8 +45,45 @@ hold the amp's control channel.
 claude mcp add lt25 -- ~/Desktop/projects/lt25-mcp/scripts/mcp-server
 ```
 
-Nine tools: `list_presets`, `get_preset`, `backup_presets`, `audition_preset`,
-`stop_audition`, `save_preset`, `list_amp_models`, `list_effects`, `amp_status`.
+Twelve tools and one prompt. The server is built to be *driven* by an
+assistant, not just called by one:
+
+| | |
+|---|---|
+| Read | `list_presets`, `get_preset`, `describe_preset`, `amp_status` |
+| Tune | `tune_preset`, `tuning_guide`, `list_amp_models`, `list_effects` |
+| Hear | `audition_preset`, `stop_audition` |
+| Commit | `backup_presets`, `save_preset` |
+| Prompt | `match_tone` — the guided by-ear workflow |
+
+Check it without an amp attached:
+
+```bash
+./scripts/py scripts/mcp_smoke.py
+```
+
+### Tuning by ear
+
+An assistant cannot hear the amp; the player can. So the server is shaped
+around a conversation rather than a calculation.
+
+`describe_preset` answers "what can I even change here?" — every control this
+particular amp model exposes, what it does musically, its value on the amp's
+own 0-10 scale, and the values it accepts. Parameter sets differ per model, so
+this is driven by the preset rather than by a fixed list.
+
+`tuning_guide` closes the gap between what a player says and which knob to
+move. Ask it about "too fizzy" and it answers treble -1.5, presence -1.0,
+gain -0.5, with the reasoning for each — plus structural advice for the cases
+where no amount of EQ is the answer, like reaching for the cabinet simulation
+or the noise gate instead.
+
+`tune_preset` applies changes on the 0-10 scale and validates as it goes: a
+knob this model does not have, a value out of range, or an invented cabinet
+name are all refused rather than sent to the amp.
+
+The loop is: start from a real preset, audition it, ask what is wrong, look
+the answer up, change **one** thing, audition again.
 
 ### From a clip to a preset
 

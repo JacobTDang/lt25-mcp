@@ -8,78 +8,10 @@ import json
 
 import pytest
 
+from helpers import StubSession, call
+
 from lt25_mcp import server as srv
 from lt25_mcp.dsp_catalog import AMP_MODELS, PASSTHRU
-
-
-class StubSession:
-    """Stands in for a live amp session."""
-
-    instances = []
-
-    def __init__(self, preset_raw):
-        self._raw = preset_raw
-        self.calls = []
-        self.closed = False
-        StubSession.instances.append(self)
-
-    def request(self, *, expect=None, timeout_ms=3000, **payload):
-        kind = next(iter(payload))
-        self.calls.append(kind)
-        raw = self._raw
-        outer = self
-
-        class Reply:
-            class presetJSONMessage:
-                data = json.dumps(raw)
-                slotIndex = payload.get("retrievePreset", {}).get("slot", 0)
-
-            class auditionStateStatus:
-                isAuditioning = "auditionPreset" in outer.calls and (
-                    "exitAuditionPreset" not in outer.calls
-                )
-
-            class firmwareVersionStatus:
-                version = "2.1.4"
-
-            class productIdentificationStatus:
-                id = "mustang-lt-25"
-
-        return Reply
-
-    def firmware_version(self):
-        return "2.1.4"
-
-    def product_id(self):
-        return "mustang-lt-25"
-
-    def open(self):
-        return self
-
-    def close(self):
-        self.closed = True
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        self.closed = True
-
-
-@pytest.fixture
-def stub_amp(monkeypatch, sample_preset):
-    StubSession.instances.clear()
-    # A held audition session must not leak between tests.
-    monkeypatch.setattr(srv, "_held", None)
-    raw = sample_preset.to_dict()
-    monkeypatch.setattr(srv, "_session", lambda: StubSession(raw))
-    yield raw
-    srv._held = None
-
-
-def call(tool):
-    """FastMCP-style decorators keep the original function on .fn."""
-    return getattr(tool, "fn", tool)
 
 
 class TestReadTools:

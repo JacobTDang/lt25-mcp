@@ -156,3 +156,69 @@ class TestCatalogCoverage:
     def test_labels_are_unique(self):
         labels = list(AMP_MODELS.values())
         assert len(labels) == len(set(labels))
+
+
+class TestEnumValidation:
+    def test_a_real_cabsim_is_accepted(self):
+        p = load("clean.json")
+        p.set_param("amp", "cabsimType", "4x12v")
+        assert p.params("amp")["cabsimType"] == "4x12v"
+
+    def test_an_invented_cabsim_is_rejected(self):
+        with pytest.raises(PresetError, match="cabsimType"):
+            load("clean.json").set_param("amp", "cabsimType", "banana")
+
+    def test_an_invented_gate_preset_is_rejected(self):
+        with pytest.raises(PresetError, match="gatePreset"):
+            load("clean.json").set_param("amp", "gatePreset", "maximum")
+
+    def test_every_gate_preset_is_accepted(self):
+        from lt25_mcp.parameters import GATE_PRESETS
+
+        for value in GATE_PRESETS:
+            p = load("clean.json")
+            p.set_param("amp", "gatePreset", value)
+            assert p.params("amp")["gatePreset"] == value
+
+    def test_unconstrained_enums_stay_permissive(self):
+        """Only one value of `sag` has ever been observed; do not lock to it."""
+        p = load("clean.json")
+        p.set_param("amp", "sag", "something-else")
+        assert p.params("amp")["sag"] == "something-else"
+
+    def test_every_fixture_value_passes_its_own_validation(self):
+        """Validation must accept the amp's own factory data."""
+        for path in FIXTURES.glob("*.json"):
+            p = Preset.from_dict(json.loads(path.read_text()))
+            for name, value in list(p.params("amp").items()):
+                p.set_param("amp", name, value)
+
+
+class TestKnobScale:
+    def test_set_knob_uses_the_amp_scale(self):
+        p = load("clean.json")
+        p.set_knob("gain", 7.5)
+        assert p.params("amp")["gain"] == pytest.approx(0.75)
+
+    def test_get_knob_reads_back_on_the_amp_scale(self):
+        p = load("clean.json")
+        p.set_knob("treb", 6.0)
+        assert p.knob("treb") == pytest.approx(6.0)
+
+    def test_out_of_range_knob_raises(self):
+        with pytest.raises(PresetError, match="0..10"):
+            load("clean.json").set_knob("gain", 11.0)
+
+    def test_negative_knob_raises(self):
+        with pytest.raises(PresetError, match="0..10"):
+            load("clean.json").set_knob("gain", -1.0)
+
+    def test_knob_absent_on_this_model_raises(self):
+        with pytest.raises(PresetError, match="not a parameter"):
+            load("clean.json").set_knob("master", 5.0)
+
+    def test_knobs_lists_what_this_model_exposes(self):
+        knobs = load("clean.json").knobs()
+        assert "gain" in knobs and "treb" in knobs
+        assert "master" not in knobs  # Twin65 has no master
+        assert all(0.0 <= v <= 10.0 for v in knobs.values())
