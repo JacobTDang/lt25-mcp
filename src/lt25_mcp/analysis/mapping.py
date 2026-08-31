@@ -35,12 +35,27 @@ CLEAN_HARMONIC_RATIO = 0.78
 SCOOPED_MID = 0.18
 FORWARD_MID = 0.38
 
+# A roughly typical electric guitar balance across the three bands.
+REFERENCE_LOW = 0.25
+REFERENCE_MID = 0.45
+REFERENCE_HIGH = 0.30
+
+BAND_TO_KNOB = 1.0
+
+# Never drive a tone control to either stop on an automatic guess.
+KNOB_MIN = 0.15
+KNOB_MAX = 0.90
+
 BRIGHT_CENTROID_HZ = 2200.0
 DARK_CENTROID_HZ = 1200.0
 
 # Below this the source is effectively dry.
 DRY_DECAY_S = 0.6
 ROOM_DECAY_S = 1.6
+
+# If the measured decay reaches this fraction of the clip, the signal never
+# actually decayed and the number means nothing.
+INCONCLUSIVE_DECAY_FRACTION = 0.95
 
 
 class MappingError(Exception):
@@ -86,8 +101,17 @@ def choose_amp_model(features: ToneFeatures) -> str:
     return "DUBS_Deluxe57"
 
 
-def choose_reverb(features: ToneFeatures) -> str:
-    """Reverb sized from how long the source rings out."""
+def choose_reverb(features: ToneFeatures) -> str | None:
+    """Reverb sized from how long the source rings out.
+
+    Returns None when the measurement carries no information: continuous music
+    never falls 30 dB below its own peak, so the decay saturates at the clip
+    length. In that case the caller should leave whatever reverb the base
+    preset already has, rather than inventing a hall or stripping one out on
+    no evidence.
+    """
+    if features.decay_time_s >= features.duration_s * INCONCLUSIVE_DECAY_FRACTION:
+        return None
     if features.decay_time_s < DRY_DECAY_S:
         return PASSTHRU
     if features.decay_time_s >= ROOM_DECAY_S:
@@ -107,12 +131,23 @@ def _tone_controls(features: ToneFeatures) -> dict[str, float]:
     # Nudge by how compressed the source actually is within its bucket.
     gain += max(-0.12, min(0.12, (10.0 - features.crest_factor_db) * 0.015))
 
+    # Knobs are set relative to a reference balance, not from the absolute
+    # band shares. A lead line played high on the neck has almost no energy
+    # below 250 Hz no matter how the amp's bass control is set, so mapping the
+    # share straight onto the knob would bottom out the bass on every solo.
+    # What the knobs should track is how the source *differs* from a typical
+    # guitar balance.
     return {
         "gain": _clamp(gain),
-        "bass": _clamp(features.low_energy_ratio * 2.2),
-        "mid": _clamp(features.mid_energy_ratio * 1.9),
-        "treb": _clamp(features.high_energy_ratio * 2.6),
+        "bass": _knob(features.low_energy_ratio, REFERENCE_LOW),
+        "mid": _knob(features.mid_energy_ratio, REFERENCE_MID),
+        "treb": _knob(features.high_energy_ratio, REFERENCE_HIGH),
     }
+
+
+def _knob(measured: float, reference: float) -> float:
+    """Position a tone control by how far the source sits from typical."""
+    return _clamp(0.5 + (measured - reference) * BAND_TO_KNOB, KNOB_MIN, KNOB_MAX)
 
 
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
@@ -139,7 +174,8 @@ def build_preset(
             preset.set_param("amp", knob, value)
 
     reverb = choose_reverb(features)
-    preset.set_effect("reverb", reverb)
+    if reverb is not None:
+        preset.set_effect("reverb", reverb)
 
     if name is not None:
         preset.display_name = name[:DISPLAY_NAME_LENGTH]

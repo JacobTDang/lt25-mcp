@@ -166,3 +166,58 @@ class TestDescribeSettings:
         """The amp shows 0-10; presets store 0-1. Humans need the former."""
         text = describe_settings(build_preset(features(), sample_preset))
         assert "/10" in text
+
+
+class TestReverbInconclusive:
+    def test_signal_that_never_decays_is_inconclusive(self):
+        """Continuous music saturates the decay measurement; that is not a hall."""
+        assert choose_reverb(features(decay_time_s=25.0, duration_s=25.0)) is None
+
+    def test_near_saturation_also_counts_as_inconclusive(self):
+        assert choose_reverb(features(decay_time_s=9.8, duration_s=10.0)) is None
+
+    def test_inconclusive_leaves_the_base_reverb_alone(self, sample_preset):
+        """Do not strip a reverb the base preset has on no evidence."""
+        before = sample_preset.unit("reverb")
+        built = build_preset(
+            features(decay_time_s=25.0, duration_s=25.0), sample_preset
+        )
+        assert built.unit("reverb") == before
+
+    def test_a_genuine_tail_still_gets_reverb(self):
+        assert choose_reverb(features(decay_time_s=2.0, duration_s=25.0)) != PASSTHRU
+
+
+class TestKnobsStayUsable:
+    def test_no_knob_is_driven_to_a_stop(self):
+        """An automatic guess should never bottom out or max out a control."""
+        extremes = [
+            features(low_energy_ratio=0.0, mid_energy_ratio=0.0, high_energy_ratio=1.0),
+            features(low_energy_ratio=1.0, mid_energy_ratio=0.0, high_energy_ratio=0.0),
+            features(low_energy_ratio=0.0, mid_energy_ratio=1.0, high_energy_ratio=0.0),
+        ]
+        from lt25_mcp.analysis.mapping import KNOB_MAX, KNOB_MIN, _tone_controls
+
+        for f in extremes:
+            for knob in ("bass", "mid", "treb"):
+                assert KNOB_MIN <= _tone_controls(f)[knob] <= KNOB_MAX
+
+    def test_a_typical_balance_lands_mid_travel(self):
+        from lt25_mcp.analysis.mapping import (
+            REFERENCE_HIGH, REFERENCE_LOW, REFERENCE_MID, _tone_controls,
+        )
+
+        f = features(
+            low_energy_ratio=REFERENCE_LOW,
+            mid_energy_ratio=REFERENCE_MID,
+            high_energy_ratio=REFERENCE_HIGH,
+        )
+        for knob in ("bass", "mid", "treb"):
+            assert _tone_controls(f)[knob] == pytest.approx(0.5, abs=0.01)
+
+    def test_brighter_than_reference_raises_treble(self):
+        from lt25_mcp.analysis.mapping import REFERENCE_HIGH, _tone_controls
+
+        dull = _tone_controls(features(high_energy_ratio=REFERENCE_HIGH - 0.2))["treb"]
+        bright = _tone_controls(features(high_energy_ratio=REFERENCE_HIGH + 0.2))["treb"]
+        assert bright > dull

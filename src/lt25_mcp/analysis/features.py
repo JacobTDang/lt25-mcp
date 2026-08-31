@@ -14,6 +14,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 
+LOW_BAND = (80.0, 250.0)
+MID_BAND = (400.0, 1200.0)
+HIGH_BAND = (2000.0, 8000.0)
+
+
 class FeatureError(Exception):
     """Raised when audio cannot be measured."""
 
@@ -30,13 +35,16 @@ class ToneFeatures:
     """Frequency below which 85% of the energy lives. Tracks presence."""
 
     low_energy_ratio: float
-    """Share of energy below 150 Hz. Thump versus tightness. 0..1."""
+    """Share of guitar-band energy in 80-250 Hz - the fundamentals of the
+    lower strings. Thump versus tightness. 0..1, normalized against the mid
+    and high bands so it stays meaningful on an isolated stem."""
 
     mid_energy_ratio: float
-    """Share of energy in 400-800 Hz. Scooped versus honky. 0..1."""
+    """Share of guitar-band energy in 400-1200 Hz. Scooped versus honky. 0..1."""
 
     high_energy_ratio: float
-    """Share of energy above 3 kHz. Fizz and pick attack. 0..1."""
+    """Share of guitar-band energy in 2-8 kHz. Presence, fizz and pick
+    attack. 0..1."""
 
     crest_factor_db: float
     """Peak over RMS. High means dynamic and clean; low means compressed or
@@ -76,9 +84,9 @@ class ToneFeatures:
                 f"  duration        {self.duration_s:.1f} s",
                 f"  centroid        {self.spectral_centroid_hz:.0f} Hz",
                 f"  rolloff (85%)   {self.spectral_rolloff_hz:.0f} Hz",
-                f"  low  <150Hz     {self.low_energy_ratio:.2%}",
-                f"  mid  400-800Hz  {self.mid_energy_ratio:.2%}",
-                f"  high >3kHz      {self.high_energy_ratio:.2%}",
+                f"  low  80-250Hz   {self.low_energy_ratio:.2%}",
+                f"  mid  400-1200Hz {self.mid_energy_ratio:.2%}",
+                f"  high 2-8kHz     {self.high_energy_ratio:.2%}",
                 f"  crest factor    {self.crest_factor_db:.1f} dB",
                 f"  harmonic ratio  {self.harmonic_ratio:.2f}",
                 f"  onset strength  {self.onset_strength:.2f}",
@@ -120,11 +128,18 @@ def extract(path: Path) -> ToneFeatures:
     spectrum = np.abs(librosa.stft(y))
     freqs = librosa.fft_frequencies(sr=sr)
     band_energy = spectrum.sum(axis=1)
-    total = float(band_energy.sum()) or 1.0
 
     def band(low: float, high: float) -> float:
         mask = (freqs >= low) & (freqs < high)
-        return float(band_energy[mask].sum()) / total
+        return float(band_energy[mask].sum())
+
+    # Bands chosen around a guitar's actual range, and normalized against each
+    # other rather than against total energy. An isolated guitar stem has had
+    # the bass guitar removed, so measuring "share of everything below 150 Hz"
+    # reports near-zero for every stem and tells you nothing about whether the
+    # guitar tone itself is bass-heavy.
+    low_e, mid_e, high_e = band(*LOW_BAND), band(*MID_BAND), band(*HIGH_BAND)
+    tonal = low_e + mid_e + high_e or 1.0
 
     rms = float(np.sqrt(np.mean(y**2)))
     crest_db = 20.0 * float(np.log10(peak / rms)) if rms > 0 else 0.0
@@ -148,9 +163,9 @@ def extract(path: Path) -> ToneFeatures:
         spectral_rolloff_hz=float(
             np.mean(librosa.feature.spectral_rolloff(y=y, sr=sr, roll_percent=0.85))
         ),
-        low_energy_ratio=band(0, 150),
-        mid_energy_ratio=band(400, 800),
-        high_energy_ratio=band(3000, sr / 2),
+        low_energy_ratio=low_e / tonal,
+        mid_energy_ratio=mid_e / tonal,
+        high_energy_ratio=high_e / tonal,
         crest_factor_db=crest_db,
         harmonic_ratio=harmonic_ratio,
         onset_strength=float(np.mean(onset_env)),

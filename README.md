@@ -10,9 +10,9 @@ menu-diving on the amp's encoder wheel.
 
 ## Status
 
-Amp control is complete and verified against real hardware (Mustang LT 25,
-firmware 2.1.4). The analysis pipeline is written and its logic is tested, but
-has not yet run on real audio.
+Both halves work end to end. Amp control is verified against real hardware
+(Mustang LT 25, firmware 2.1.4), and the analysis pipeline has been run on a
+real YouTube clip through to a preset.
 
 | | |
 |---|---|
@@ -25,8 +25,8 @@ has not yet run on real audio.
 | Audition | done, verified on hardware |
 | Guarded writes to slots 31-60 | done, verified on hardware |
 | MCP server (9 tools) | done |
-| Analysis: acquire / stems / features / plots / mapping / CLI | written, logic tested |
-| Analysis on real audio | not yet run — see issues |
+| Analysis: acquire / stems / features / plots / mapping / CLI | done |
+| Analysis on a real clip | done — see the worked example below |
 
 ## Quick start
 
@@ -60,6 +60,52 @@ Nine tools: `list_presets`, `get_preset`, `backup_presets`, `audition_preset`,
 
 The analysis CLI never touches the amp. Writing is always a separate,
 explicit step.
+
+## A worked example
+
+The solo from *courage* by wave to earth, taken from a 35-second lesson video:
+
+```bash
+./scripts/py -m lt25_mcp.analysis.cli \
+  --url "https://www.youtube.com/watch?v=NnxbDbVYV-Q" \
+  --start 5 --end 30 \
+  --base tests/fixtures/clean.json --out courage.json --name "COURAGE"
+```
+
+```
+measured:
+  centroid        1745 Hz
+  low  80-250Hz   3.71%
+  mid  400-1200Hz 41.48%
+  high 2-8kHz     54.81%
+  crest factor    12.4 dB
+  harmonic ratio  0.97
+  key             D
+  tuning offset   +0.48 semitones
+
+Amp model: DELUXE CLN
+  Gain     2.6/10
+  Treble   7.5/10
+  Middle   4.6/10
+  Bass     2.9/10
+  Stomp    COMPRESSOR
+  Reverb   SPRING 65
+```
+
+A 1965 Deluxe Reverb, clean, bright, with spring reverb and light compression —
+a defensible reading of that record. The source is a full band mix, so the
+guitar was separated out first; measured on the whole mix instead it reads
+2050 Hz and 13.8 dB crest, which would have chosen a different amp entirely.
+
+Three things that run went on to fix, each invisible until real audio hit them:
+band ratios measured against total energy read near-zero bass on every isolated
+stem, because separation removes the bass guitar; a lead line played high on the
+neck has little low end whatever the amp's bass control is set to, so knobs are
+now positioned relative to a typical guitar balance rather than from absolute
+share; and a continuous take never falls 30 dB below its own peak, so reverb
+detection reports "inconclusive" and leaves the base preset's reverb alone
+instead of inventing a hall.
+
 
 ## How the amp talks
 
