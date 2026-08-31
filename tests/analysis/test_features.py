@@ -143,3 +143,34 @@ class TestKeyAndTuning:
         text = extract(write(tmp_path, sine())).describe()
         for label in ("centroid", "crest", "harmonic", "decay", "key", "tuning"):
             assert label in text.lower()
+
+
+class TestDecayIgnoresFadeOuts:
+    def test_a_fade_out_at_the_end_does_not_look_like_reverb(self, tmp_path):
+        """A clip that simply stops must not read as a long reverb tail."""
+        notes = np.zeros_like(t())
+        step = int(0.4 * SR)
+        for start in range(0, len(notes) - step, step):
+            seg = t()[:step]
+            notes[start : start + step] = np.sin(2 * math.pi * 220 * seg) * np.exp(-25 * seg)
+        dry = extract(write(tmp_path, notes, "dry.wav")).decay_time_s
+
+        faded = notes.copy()
+        tail = int(0.5 * SR)
+        faded[-tail:] *= np.linspace(1, 0, tail)
+        assert extract(write(tmp_path, faded, "faded.wav")).decay_time_s == pytest.approx(
+            dry, abs=0.15
+        )
+
+    def test_notes_with_a_tail_read_longer_than_dry_notes(self, tmp_path):
+        step = int(0.5 * SR)
+        dry = np.zeros_like(t())
+        wet = np.zeros_like(t())
+        for start in range(0, len(dry) - step, step):
+            seg = t()[:step]
+            dry[start : start + step] = np.sin(2 * math.pi * 220 * seg) * np.exp(-40 * seg)
+            wet[start : start + step] = np.sin(2 * math.pi * 220 * seg) * np.exp(-4 * seg)
+        assert (
+            extract(write(tmp_path, wet, "wet.wav")).decay_time_s
+            > extract(write(tmp_path, dry, "dry.wav")).decay_time_s
+        )

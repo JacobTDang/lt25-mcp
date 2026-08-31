@@ -59,6 +59,12 @@ ROOM_DECAY_S = 1.6
 # actually decayed and the number means nothing.
 INCONCLUSIVE_DECAY_FRACTION = 0.95
 
+# The longest real reverb tail worth believing. Physical spaces and studio
+# plates run a few seconds; anything beyond this means the measurement
+# caught something that is not reverb - a clip fading out, or a passage
+# that simply sustains to the end.
+MAX_PLAUSIBLE_DECAY_S = 8.0
+
 
 # How far from a decision boundary a measurement must sit before the choice
 # counts as confident. Crest factor spans roughly 0-20 dB across clean to
@@ -173,13 +179,16 @@ def choose_amp_model(features: ToneFeatures) -> str:
 def choose_reverb(features: ToneFeatures) -> str | None:
     """Reverb sized from how long the source rings out.
 
-    Returns None when the measurement carries no information: continuous music
-    never falls 30 dB below its own peak, so the decay saturates at the clip
-    length. In that case the caller should leave whatever reverb the base
-    preset already has, rather than inventing a hall or stripping one out on
-    no evidence.
+    Returns None when the measurement carries no information. That happens two
+    ways: continuous music never falls 30 dB below its own peak, so the decay
+    saturates at the clip length; or a clip fades out at the end, which drops
+    the envelope on a timescale far longer than any real reverb. In both cases
+    the caller should leave whatever reverb the base preset already has, rather
+    than inventing a hall or stripping one out on no evidence.
     """
     if features.decay_time_s >= features.duration_s * INCONCLUSIVE_DECAY_FRACTION:
+        return None
+    if features.decay_time_s > MAX_PLAUSIBLE_DECAY_S:
         return None
     if features.decay_time_s < DRY_DECAY_S:
         return PASSTHRU

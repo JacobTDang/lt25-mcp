@@ -286,3 +286,18 @@ class TestDescribeReportsUncertainty:
 
     def test_describe_settings_works_without_a_choice(self, sample_preset):
         assert describe_settings(build_preset(features(), sample_preset))
+
+
+class TestImplausibleDecay:
+    def test_a_27_second_tail_is_not_reverb(self):
+        """Measured on a real clip that faded out; no room rings for 27 seconds."""
+        assert choose_reverb(features(decay_time_s=26.94, duration_s=30.0)) is None
+
+    def test_the_boundary_is_physical_not_proportional(self):
+        from lt25_mcp.analysis.mapping import MAX_PLAUSIBLE_DECAY_S
+
+        long_clip = features(decay_time_s=MAX_PLAUSIBLE_DECAY_S + 1, duration_s=600.0)
+        assert choose_reverb(long_clip) is None
+
+    def test_a_plausible_tail_in_a_long_clip_still_counts(self):
+        assert choose_reverb(features(decay_time_s=2.5, duration_s=600.0)) is not None
