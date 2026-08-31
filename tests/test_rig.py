@@ -117,3 +117,57 @@ class TestDescribe:
 
     def test_says_none_when_there_are_no_pedals(self):
         assert "none" in Rig().describe()
+
+
+class TestAdaptKnobs:
+    BASE = {"gain": 5.0, "treb": 5.0}
+
+    def _library(self, *profiles):
+        from lt25_mcp.guitar import GuitarLibrary
+
+        lib = GuitarLibrary()
+        for p in profiles:
+            lib.add(p)
+        return lib
+
+    def _profile(self, name, output=-18.0, centroid=1800.0):
+        from lt25_mcp.guitar import GuitarProfile
+
+        return GuitarProfile(name=name, output_dbfs=output, centroid_hz=centroid,
+                             crest_factor_db=12.0, sustain_s=1.0)
+
+    def test_measurement_beats_the_pickup_prior(self):
+        from lt25_mcp.rig import adapt_knobs
+
+        lib = self._library(self._profile("strat", output=-20.0),
+                            self._profile("lp", output=-14.0))
+        rig = Rig(pickups="single_coil", playing="lp")
+        adjusted, notes, method = adapt_knobs(self.BASE, rig, lib)
+        assert method == "measured"
+        # single_coil prior would RAISE gain; the measurement lowers it
+        assert adjusted["gain"] < self.BASE["gain"]
+        assert any("hotter" in n for n in notes)
+
+    def test_falls_back_to_the_prior_when_uncalibrated(self):
+        from lt25_mcp.rig import adapt_knobs
+
+        adjusted, notes, method = adapt_knobs(
+            self.BASE, Rig(pickups="humbucker"), self._library()
+        )
+        assert method == "pickup_prior"
+        assert adjusted["gain"] < self.BASE["gain"]
+
+    def test_nothing_known_changes_nothing(self):
+        from lt25_mcp.rig import adapt_knobs
+
+        adjusted, notes, method = adapt_knobs(self.BASE, Rig(), self._library())
+        assert method == "none"
+        assert adjusted == self.BASE
+
+    def test_playing_the_reference_guitar_changes_nothing(self):
+        from lt25_mcp.rig import adapt_knobs
+
+        lib = self._library(self._profile("strat"))
+        adjusted, notes, method = adapt_knobs(self.BASE, Rig(playing="strat"), lib)
+        assert method == "measured"
+        assert adjusted == self.BASE

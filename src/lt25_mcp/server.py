@@ -26,7 +26,15 @@ from lt25_mcp.dsp_catalog import AMP_MODELS, EFFECTS, effect_label
 from lt25_mcp.library import SLOT_MAX, SLOT_MIN, WRITABLE_MIN, backup_all, latest_backup, read_preset
 from lt25_mcp.parameters import describe_parameters
 from lt25_mcp.preset import Preset, PresetError
-from lt25_mcp.rig import PICKUP_RATIONALE, PICKUP_TYPES, Rig, RigError, adjust_for_rig, slots_to_leave_empty
+from lt25_mcp.guitar import (
+    CALIBRATION_INSTRUCTIONS,
+    REFERENCE_KNOBS,
+    REFERENCE_PRESET_AMP,
+    GuitarError,
+    GuitarLibrary,
+    profile_from_capture,
+)
+from lt25_mcp.rig import PICKUP_RATIONALE, PICKUP_TYPES, Rig, RigError, adapt_knobs, slots_to_leave_empty
 from lt25_mcp.session import Session
 from lt25_mcp.transport import open_transport
 from lt25_mcp.tuning import STRUCTURAL_ADVICE, catalogue, remedy_for
@@ -77,6 +85,14 @@ different pickups, and loading an overdrive into the stomp slot is wrong if
 the player already has a real one in front of the amp. Call `get_rig` at the
 start of a session. If nothing has been declared, ask - it takes one question
 and it changes the answers. `set_rig` records it.
+
+Pickup type is only a coarse prior. `calibrate_guitar` measures the actual
+instrument through the amp's USB audio input and stores a profile; presets
+then adapt by the measured difference between guitars rather than by category.
+Offer it when the player has more than one guitar, or when a preset built for
+one instrument sounds wrong through another. `tune_preset(apply_rig=True)`
+uses a measured profile when there is one and falls back to the prior
+otherwise, and always says which.
 
 ## Rules
 
@@ -290,11 +306,15 @@ def tune_preset(
             preset.display_name = name
             changes.append(f"name -> {name}")
         if apply_rig:
-            rig = Rig.load()
-            adjusted, why = adjust_for_rig(preset.knobs(), rig)
+            adjusted, why, method = adapt_knobs(preset.knobs(), Rig.load())
             for knob, value in adjusted.items():
                 preset.set_knob(knob, value)
             changes.extend(why)
+            if method == "pickup_prior":
+                changes.append(
+                    "(adjusted from pickup type only - calibrate_guitar gives a "
+                    "measured profile instead)"
+                )
     except PresetError as exc:
         raise ValueError(str(exc)) from exc
     return {
@@ -357,6 +377,82 @@ def get_rig() -> dict[str, Any]:
 
 @server.tool(
     description=(
+        "List calibrated guitars. Each is measured through the same reference "
+        "preset, and presets adapt by the difference between whichever guitar "
+        "is plugged in and the reference one."
+    )
+)
+def list_guitars() -> dict[str, Any]:
+    library = GuitarLibrary.load()
+    rig = Rig.load()
+    return {
+        "guitars": [p.to_dict() for p in library.guitars.values()],
+        "reference": library.reference.name if library.reference else None,
+        "playing": rig.playing or None,
+        "how_to_add": (
+            "Load a preset using amp model "
+            f"{REFERENCE_PRESET_AMP} with knobs {REFERENCE_KNOBS}, audition it, "
+            "then call calibrate_guitar while the player plays."
+        ),
+    }
+
+
+@server.tool(
+    description=(
+        "Measure the guitar currently plugged in and store it as a profile. "
+        "Records from the amp's USB audio output while the player plays, so "
+        "tell them what to play and wait for them to be ready first. The first "
+        "guitar calibrated becomes the reference."
+    )
+)
+def calibrate_guitar(name: str, seconds: float = 20.0, pickups: str = "unknown") -> dict[str, Any]:
+    import tempfile
+
+    from lt25_mcp.analysis.capture import CaptureError, record
+
+    try:
+        capture = record(
+            Path(tempfile.mkdtemp(prefix="lt25-calib-")) / f"{name}.wav", seconds
+        )
+        profile = profile_from_capture(name, capture, pickups=pickups)
+    except (CaptureError, GuitarError) as exc:
+        raise ValueError(str(exc)) from exc
+
+    library = GuitarLibrary.load()
+    library.add(profile)
+    library.save()
+    rig = Rig.load()
+    rig.playing = name
+    rig.save()
+    return {
+        "profile": profile.to_dict(),
+        "summary": profile.describe(),
+        "is_reference": profile.is_reference,
+        "now_playing": name,
+        "instructions_used": CALIBRATION_INSTRUCTIONS,
+    }
+
+
+@server.tool(
+    description=(
+        "Say which calibrated guitar is now plugged in, so presets adapt to it."
+    )
+)
+def select_guitar(name: str) -> dict[str, Any]:
+    library = GuitarLibrary.load()
+    if name not in library.guitars:
+        raise ValueError(
+            f"no profile named {name!r}; calibrated guitars: "
+            f"{sorted(library.guitars) or 'none'}"
+        )
+    rig = Rig.load()
+    rig.playing = name
+    rig.save()
+    return {"playing": name, "summary": library.guitars[name].describe()}
+
+
+@server.tool(
+    description=(
         "Record the player's guitar and pedals. pickups is one of: unknown, "
         "single_coil, humbucker, p90, active. pedals lists what is in front of "
         "the amp: overdrive, distortion, fuzz, compressor, modulation, delay, "
@@ -368,9 +464,11 @@ def set_rig(
     guitar: str = "",
     pedals: list[str] | None = None,
     notes: str = "",
+    playing: str = "",
 ) -> dict[str, Any]:
     try:
-        rig = Rig(pickups=pickups, guitar=guitar, pedals=pedals or [], notes=notes)
+        rig = Rig(pickups=pickups, guitar=guitar, pedals=pedals or [],
+                  notes=notes, playing=playing)
     except RigError as exc:
         raise ValueError(str(exc)) from exc
     path = rig.save()

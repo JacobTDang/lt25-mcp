@@ -101,6 +101,36 @@ stacking two of the same effect.
 Adjustments only apply when the pickup type is actually known — an undeclared
 rig changes nothing rather than guessing.
 
+### Adapting to any guitar, by measurement
+
+Pickup category is a coarse prior. "Humbucker" spans a vintage PAF and a
+ceramic bridge unit that sound nothing alike, and it says nothing about string
+gauge, pickup height or how hard someone picks. So rather than categorising
+harder, the amp measures.
+
+`calibrate_guitar` records through the amp's USB audio output while the player
+plays, and stores what it measured: output level, brightness, pick dynamics,
+sustain. The first guitar calibrated becomes the reference — the one presets
+were built around — and every other guitar is stored as a delta from it.
+`select_guitar` says which is plugged in now, and presets shift by that delta:
+
+```
+preset built for the reference guitar:  gain 5.0  treb 5.0
+same preset through the les paul:       gain 2.9  treb 6.4
+  gain 5.0 -> 2.9: epiphone lp is 6.0 dB hotter than squier strat
+  treb 5.0 -> 6.4: epiphone lp is darker by 0.68 octaves of spectral centre
+```
+
+No categories, no magic constants — it works for whatever gets plugged in,
+including the same guitar after a pickup swap or a change of string gauge.
+Capture goes through ffmpeg's avfoundation input, so it needs no audio library
+beyond what is already installed.
+
+Two limits stated plainly in the code: the first guitar calibrated gets no
+adjustment, which is correct because there is nothing yet to adapt between;
+and measured levels are comparable only between captures made the same way,
+never against a mixed and mastered recording off the internet.
+
 ### From a clip to a preset
 
 ```bash

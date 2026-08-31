@@ -109,6 +109,10 @@ def main() -> int:
         client.call_tool("set_rig", pickups=rig["pickups"], guitar=rig["guitar"],
                          pedals=rig["pedals"], notes=rig["notes"])
 
+        guitars = client.call_tool("list_guitars")
+        print(f"list_guitars: {len(guitars['guitars'])} calibrated, "
+              f"reference={guitars['reference']}, playing={guitars['playing']}")
+
         prompt = client.request("prompts/get", {
             "name": "match_tone", "arguments": {"target": "the courage solo tone"}})
         first = prompt["messages"][0]["content"]["text"].splitlines()[0]

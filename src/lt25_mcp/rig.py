@@ -43,6 +43,8 @@ class Rig:
 
     pickups: str = "unknown"
     guitar: str = ""
+    playing: str = ""
+    """Name of the calibrated guitar currently plugged in, if any."""
     pedals: list[str] = field(default_factory=list)
     """Pedal kinds in front of the amp, from PEDAL_SLOTS."""
     notes: str = ""
@@ -70,7 +72,7 @@ class Rig:
 
     @classmethod
     def from_dict(cls, data: dict) -> Rig:
-        allowed = {"pickups", "guitar", "pedals", "notes"}
+        allowed = {"pickups", "guitar", "playing", "pedals", "notes"}
         return cls(**{k: v for k, v in data.items() if k in allowed})
 
     def save(self, path: Path | None = None) -> Path:
@@ -160,6 +162,28 @@ def adjust_for_rig(knobs: dict[str, float], rig: Rig) -> tuple[dict[str, float],
                 f"{rig.pickups.replace('_', ' ')} pickups"
             )
     return adjusted, explanations
+
+
+def adapt_knobs(knobs: dict[str, float], rig: Rig, library=None):
+    """Adjust knobs for whatever guitar is plugged in.
+
+    Prefers a measured profile, which accounts for this specific instrument,
+    and falls back to the coarse pickup-type prior when the guitar has not
+    been calibrated. Returns the knobs, a note per change, and which of the
+    two was used, so the reasoning is never hidden.
+    """
+    from lt25_mcp.guitar import GuitarLibrary, adapt
+
+    library = GuitarLibrary.load() if library is None else library
+    playing = library.guitars.get(rig.playing) if rig.playing else None
+    reference = library.reference
+
+    if playing is not None and reference is not None:
+        adjusted, notes = adapt(knobs, playing, reference)
+        return adjusted, notes, "measured"
+
+    adjusted, notes = adjust_for_rig(knobs, rig)
+    return adjusted, notes, "pickup_prior" if notes else "none"
 
 
 def slots_to_leave_empty(rig: Rig) -> dict[str, str]:
