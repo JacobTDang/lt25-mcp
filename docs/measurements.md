@@ -79,3 +79,53 @@ dynamics   18.2 dB crest
 Pickup type still undeclared - the headstock identifies the series but not
 whether it is the HSS Silo3 or the HH AX3. The measured profile supersedes the
 category, so this does not need resolving for adaptation to work.
+
+## Gain classification (2026-08-31)
+
+**Question.** The clean / crunch / high-gain rule keyed on crest factor, set
+from synthesized signals. Does it work on real amp output?
+
+**Method.** Ten clips: nine recorded through the amp's own factory presets,
+where Fender's choice of amp model and gain is the label, plus one guitar stem
+from a target clip. Same guitar, room and player throughout, so the only thing
+varying is the tone.
+
+**Result: crest factor does not work.** 40% accuracy, and high gain was never
+once predicted:
+
+| label | crest factor (dB) |
+|---|---|
+| clean | 12.6, 19.5, 14.1, 14.5 |
+| crunch | 10.8, 14.2, 14.5 |
+| high gain | 12.5, 13.3, 12.2 |
+
+The ranges overlap almost entirely. Over a whole take, crest factor measures
+the *performance's* dynamic range - the gaps between notes - far more than the
+saturation. A sweep of every threshold pair reached 50% at best, against 40%
+for always guessing "clean".
+
+**Spectral flatness does work.** Distortion generates harmonics and
+intermodulation noise, which flattens the spectrum away from the few strong
+peaks of a clean tone:
+
+| label | spectral flatness |
+|---|---|
+| clean | 0.00001, 0.00083, 0.00086, 0.00113 |
+| crunch | 0.00089, 0.00130, 0.00233 |
+| high gain | 0.00285, 0.00535, 0.00621 |
+
+Boundaries at **0.00088** and **0.00259** score **90%** - perfect on crunch and
+high gain, with one clean preset (COUNTRY PICKING, a Deluxe Clean with a
+compressor and tape delay) landing in crunch at 0.00113, between two genuine
+crunch samples. A sweep over 7,281 pairs found nothing better.
+
+Two other features separate clean from high gain but not crunch from either:
+spectral rolloff (clean 2677-3142 Hz, high gain 4376-5021 Hz) and the harmonic
+ratio (clean 0.888-0.968, high gain 0.829-0.877). Flatness was chosen because
+it separates all three.
+
+**Caveats.** Ten clips, one guitar, one room, one player. The thresholds are
+the best fit to that evidence, not a law. Flatness is computed over the whole
+spectrum, so it moves with the sample rate - the stability harness excludes
+resampled variants from agreement for that reason, and the calibration was
+done at 44.1 kHz.

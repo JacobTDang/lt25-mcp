@@ -26,7 +26,7 @@ from lt25_mcp.analysis.corpus import (
     evaluate,
     sweep,
 )
-from lt25_mcp.analysis.mapping import CLEAN_CREST_DB, HIGH_GAIN_CREST_DB
+from lt25_mcp.analysis.mapping import CLEAN_FLATNESS, HIGH_GAIN_FLATNESS
 
 
 def _warn_if_thin(corpus: Corpus) -> None:
@@ -108,12 +108,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"searched {len(tried)} threshold pairs\n")
             print(best.describe())
             print()
-            if (best.clean_crest, best.high_gain_crest) == (CLEAN_CREST_DB, HIGH_GAIN_CREST_DB):
+            if (best.clean_flat, best.high_gain_flat) == (CLEAN_FLATNESS, HIGH_GAIN_FLATNESS):
                 print("the current thresholds are already the best fit")
             elif best.accuracy > current.accuracy:
                 print("to adopt, edit src/lt25_mcp/analysis/mapping.py:")
-                print(f"    CLEAN_CREST_DB = {best.clean_crest}")
-                print(f"    HIGH_GAIN_CREST_DB = {best.high_gain_crest}")
+                print(f"    CLEAN_FLATNESS = {best.clean_flat}")
+                print(f"    HIGH_GAIN_FLATNESS = {best.high_gain_flat}")
                 print(f"  accuracy {current.accuracy:.0%} -> {best.accuracy:.0%}")
             else:
                 print(f"no improvement on the current {current.accuracy:.0%};"

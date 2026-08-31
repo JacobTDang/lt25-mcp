@@ -55,15 +55,36 @@ class StabilityReport:
         """Fraction of variants choosing the baseline's amp model."""
         if not self.variants:
             return 1.0
-        agree = sum(v.amp_model == self.baseline.amp_model for v in self.variants)
-        return agree / len(self.variants)
+        variants = self.comparable
+        if not variants:
+            return 1.0
+        agree = sum(v.amp_model == self.baseline.amp_model for v in variants)
+        return agree / len(variants)
+
+    @property
+    def comparable(self) -> list[VariantResult]:
+        """Variants whose measurements can be compared with the baseline's.
+
+        Spectral flatness, which drives the character, is computed over the
+        whole spectrum, so it moves with the sample rate: a lower one simply
+        has less spectrum. A resampled variant therefore measures something
+        genuinely different, and counting it as disagreement would report
+        instability that is not there.
+
+        Level and section variants stay in - those must agree.
+        """
+        return [
+            v for v in self.variants
+            if v.features.sample_rate_hz == self.baseline.features.sample_rate_hz
+        ]
 
     @property
     def character_agreement(self) -> float:
-        if not self.variants:
+        variants = self.comparable
+        if not variants:
             return 1.0
-        agree = sum(v.character == self.baseline.character for v in self.variants)
-        return agree / len(self.variants)
+        agree = sum(v.character == self.baseline.character for v in variants)
+        return agree / len(variants)
 
     @property
     def reverb_agreement(self) -> float:

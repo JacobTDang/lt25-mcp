@@ -19,19 +19,29 @@ from lt25_mcp.analysis.features import ToneFeatures
 from lt25_mcp.dsp_catalog import PASSTHRU
 from lt25_mcp.preset import DISPLAY_NAME_LENGTH, Preset, PresetError
 
-# Crest factor splits saturation levels. A clean guitar keeps its transients
-# and so stays dynamic; distortion compresses the signal towards a square
-# wave. For reference, a pure sine measures 3.0 dB and a square wave 0.0 dB.
+# Saturation is read from spectral flatness: distortion generates harmonics
+# and intermodulation noise, which flattens the spectrum away from the few
+# strong peaks a clean tone produces.
 #
-# THESE THRESHOLDS ARE NOT CALIBRATED AGAINST REAL RECORDINGS. They were set
-# from synthesized signals and sanity-checked by ear on nothing at all yet.
-# Expect to move them once real clips have been through the pipeline.
-CLEAN_CREST_DB = 9.5
-HIGH_GAIN_CREST_DB = 4.5
+# Calibrated against ten clips recorded through this amp's own factory presets,
+# where Fender's choice of model and gain is the label. Measured ranges:
+#
+#     clean       0.00001 - 0.00113
+#     crunch      0.00089 - 0.00233
+#     high gain   0.00285 - 0.00621
+#
+# These boundaries score 90% on that corpus. See docs/measurements.md.
+#
+# Crest factor was used here previously and does not work: over a whole take it
+# measures the performance's dynamic range - the gaps between notes - more than
+# the tone. On the same corpus its best achievable accuracy was 50%, and it
+# never once predicted high gain.
+CLEAN_FLATNESS = 0.00088
+HIGH_GAIN_FLATNESS = 0.00259
 
-# Above this share of harmonic energy the signal is holding together as pitched
-# notes rather than dissolving into noise.
-CLEAN_HARMONIC_RATIO = 0.78
+# Retained for the audition loop's gain nudge, which compares two takes made
+# the same way rather than classifying one in isolation.
+CREST_DEADBAND_DB = 2.0
 
 # Where 400-800 Hz stops being scooped and starts being forward.
 SCOOPED_MID = 0.18
@@ -66,10 +76,10 @@ INCONCLUSIVE_DECAY_FRACTION = 0.95
 MAX_PLAUSIBLE_DECAY_S = 8.0
 
 
-# How far from a decision boundary a measurement must sit before the choice
-# counts as confident. Crest factor spans roughly 0-20 dB across clean to
-# heavily saturated, so 3 dB is a meaningful margin.
-CONFIDENT_MARGIN_DB = 3.0
+# How far from a boundary a measurement must sit before the choice counts as
+# confident. The whole flatness range across the corpus spans about 0.006, and
+# the two boundaries are 0.0017 apart, so a third of that gap is meaningful.
+CONFIDENT_MARGIN = 0.0006
 
 # Below this, offer the neighbouring character's amp as an alternative.
 CONFIDENT = 0.6
@@ -97,24 +107,21 @@ class AmpChoice:
 
 
 def gain_character(features: ToneFeatures) -> str:
-    """One of 'clean', 'crunch', 'high_gain'."""
-    if (
-        features.crest_factor_db >= CLEAN_CREST_DB
-        and features.harmonic_ratio >= CLEAN_HARMONIC_RATIO
-    ):
+    """One of 'clean', 'crunch', 'high_gain', from spectral flatness."""
+    if features.spectral_flatness < CLEAN_FLATNESS:
         return "clean"
-    if features.crest_factor_db < HIGH_GAIN_CREST_DB:
+    if features.spectral_flatness >= HIGH_GAIN_FLATNESS:
         return "high_gain"
     return "crunch"
 
 
 def _character_confidence(features: ToneFeatures) -> float:
-    """How far the crest factor sits from the nearest gain boundary, 0..1."""
+    """How far the flatness sits from the nearest boundary, 0..1."""
     margin = min(
-        abs(features.crest_factor_db - CLEAN_CREST_DB),
-        abs(features.crest_factor_db - HIGH_GAIN_CREST_DB),
+        abs(features.spectral_flatness - CLEAN_FLATNESS),
+        abs(features.spectral_flatness - HIGH_GAIN_FLATNESS),
     )
-    return _clamp(margin / CONFIDENT_MARGIN_DB)
+    return _clamp(margin / CONFIDENT_MARGIN)
 
 
 def _amp_for_character(character: str, features: ToneFeatures) -> str:
@@ -156,9 +163,9 @@ def choose_amp(features: ToneFeatures) -> AmpChoice:
     primary = _amp_for_character(character, features)
     confidence = _character_confidence(features)
     reason = (
-        f"crest {features.crest_factor_db:.1f} dB and harmonic ratio "
-        f"{features.harmonic_ratio:.2f} read as {character.replace('_', ' ')}; "
-        f"centroid {features.spectral_centroid_hz:.0f} Hz and "
+        f"spectral flatness {features.spectral_flatness:.5f} reads as "
+        f"{character.replace('_', ' ')}; centroid "
+        f"{features.spectral_centroid_hz:.0f} Hz and "
         f"{features.mid_energy_ratio:.0%} midrange chose the model"
     )
     alternatives: list[str] = []

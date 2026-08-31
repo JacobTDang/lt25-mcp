@@ -253,3 +253,33 @@ class TestLogSpectrum:
 
         with pytest.raises(FeatureError, match="no such audio file"):
             log_spectrum(tmp_path / "nope.wav")
+
+
+class TestSpectralFlatness:
+    """Distortion generates harmonics and intermodulation noise, which flattens
+    the spectrum. Measured on real amp output this separates clean from
+    high-gain where crest factor does not."""
+
+    def test_a_pure_tone_is_very_peaky(self, tmp_path):
+        assert extract(write(tmp_path, sine(440))).spectral_flatness < 0.01
+
+    def test_noise_is_flat(self, tmp_path):
+        assert extract(write(tmp_path, noise())).spectral_flatness > 0.1
+
+    def test_a_square_sits_between(self, tmp_path):
+        s = extract(write(tmp_path, sine(440), "s.wav")).spectral_flatness
+        q = extract(write(tmp_path, square(440), "q.wav")).spectral_flatness
+        n = extract(write(tmp_path, noise(), "n.wav")).spectral_flatness
+        assert s < q < n
+
+    def test_it_is_a_fraction(self, tmp_path):
+        for sig, name in ((sine(), "a.wav"), (square(), "b.wav"), (noise(), "c.wav")):
+            assert 0.0 <= extract(write(tmp_path, sig, name)).spectral_flatness <= 1.0
+
+    def test_level_does_not_change_it(self, tmp_path):
+        quiet = extract(write(tmp_path, sine(440, amp=0.1), "q.wav")).spectral_flatness
+        loud = extract(write(tmp_path, sine(440, amp=0.8), "l.wav")).spectral_flatness
+        assert quiet == pytest.approx(loud, rel=0.2)
+
+    def test_describe_reports_it(self, tmp_path):
+        assert "flatness" in extract(write(tmp_path, sine())).describe().lower()

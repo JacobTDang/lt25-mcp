@@ -164,3 +164,63 @@ class TestReferenceConsistency:
         from lt25_mcp.guitar import REFERENCE_PRESET_AMP
 
         assert REFERENCE_PRESET_AMP == "DUBS_LinearGain"
+
+
+class TestManagingProfiles:
+    def _library(self, *names):
+        from lt25_mcp.guitar import GuitarLibrary
+
+        lib = GuitarLibrary()
+        for n in names:
+            lib.add(profile(n))
+        return lib
+
+    def test_rename_keeps_the_measurements(self):
+        lib = self._library("sterling sub")
+        before = lib.guitars["sterling sub"].output_dbfs
+        lib.rename("sterling sub", "jacob-sub")
+        assert "sterling sub" not in lib.guitars
+        assert lib.guitars["jacob-sub"].output_dbfs == before
+        assert lib.guitars["jacob-sub"].name == "jacob-sub"
+
+    def test_rename_keeps_reference_status(self):
+        lib = self._library("a")
+        lib.rename("a", "b")
+        assert lib.reference.name == "b"
+
+    def test_renaming_an_unknown_profile_raises(self):
+        with pytest.raises(GuitarError, match="no profile named"):
+            self._library("a").rename("nope", "b")
+
+    def test_renaming_onto_an_existing_name_raises(self):
+        with pytest.raises(GuitarError, match="already exists"):
+            self._library("a", "b").rename("a", "b")
+
+    def test_renaming_to_blank_raises(self):
+        with pytest.raises(GuitarError, match="needs a name"):
+            self._library("a").rename("a", "  ")
+
+    def test_remove_forgets_a_profile(self):
+        lib = self._library("a", "b")
+        lib.remove("b")
+        assert sorted(lib.guitars) == ["a"]
+
+    def test_removing_an_unknown_profile_raises(self):
+        with pytest.raises(GuitarError, match="no profile named"):
+            self._library("a").remove("nope")
+
+    def test_removing_the_reference_lets_the_next_one_take_over(self):
+        lib = self._library("a")
+        lib.remove("a")
+        assert lib.reference is None
+        lib.add(profile("c"))
+        assert lib.reference.name == "c"
+
+    def test_changes_survive_a_round_trip(self, tmp_path):
+        from lt25_mcp.guitar import GuitarLibrary
+
+        lib = self._library("a", "b")
+        lib.rename("a", "jacob-sub")
+        lib.remove("b")
+        path = lib.save(tmp_path / "g.json")
+        assert sorted(GuitarLibrary.load(path).guitars) == ["jacob-sub"]

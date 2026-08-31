@@ -151,6 +151,30 @@ class GuitarLibrary:
         self.guitars[profile.name] = profile
         return profile
 
+    def rename(self, old: str, new: str) -> GuitarProfile:
+        """Rename a profile, keeping its measurements and reference status."""
+        if old not in self.guitars:
+            raise GuitarError(
+                f"no profile named {old!r}; have: {sorted(self.guitars) or 'none'}"
+            )
+        if not new.strip():
+            raise GuitarError("a guitar profile needs a name")
+        if new in self.guitars and new != old:
+            raise GuitarError(f"a profile named {new!r} already exists")
+        profile = self.guitars.pop(old)
+        profile.name = new
+        self.guitars[new] = profile
+        return profile
+
+    def remove(self, name: str) -> None:
+        """Forget a profile. Removing the reference leaves the library without
+        one, so the next profile added becomes the reference."""
+        if name not in self.guitars:
+            raise GuitarError(
+                f"no profile named {name!r}; have: {sorted(self.guitars) or 'none'}"
+            )
+        del self.guitars[name]
+
     def set_reference(self, name: str) -> GuitarProfile:
         if name not in self.guitars:
             raise GuitarError(f"no profile named {name!r}; calibrate it first")

@@ -48,8 +48,12 @@ class ToneFeatures:
     attack. 0..1."""
 
     crest_factor_db: float
-    """Peak over RMS. High means dynamic and clean; low means compressed or
-    saturated."""
+    """Peak over RMS across the whole take.
+
+    Note this measures the *performance's* dynamic range as much as the tone:
+    gaps between notes inflate it regardless of distortion. Measured on real
+    amp output it does not separate clean from high gain - use
+    `spectral_flatness` for that."""
 
     harmonic_ratio: float
     """Share of energy that is harmonic rather than percussive. 0..1. Falls as
@@ -75,6 +79,19 @@ class ToneFeatures:
 
     duration_s: float
 
+    spectral_flatness: float = 0.0
+    """Geometric over arithmetic mean of the spectrum, 0..1.
+
+    Depends on the sample rate, because a lower one truncates the top of the
+    spectrum. Compare it only between clips recorded the same way, and check
+    `high_band_truncated` first - the calibration was done at 44.1 kHz.
+
+    Low means peaky - a few strong harmonics, which is a clean tone. High means
+    noise-like, which is what distortion produces as it generates harmonics and
+    intermodulation. This is the measurement that actually tracks saturation:
+    across real amp presets it ran 0.0000-0.0011 clean, 0.0009-0.0023 crunch
+    and 0.0029-0.0062 high gain."""
+
     sample_rate_hz: int = 44100
     """Sample rate of the source. Low rates truncate the high band."""
 
@@ -97,6 +114,7 @@ class ToneFeatures:
                 f"  mid  400-1200Hz {self.mid_energy_ratio:.2%}",
                 f"  high 2-8kHz     {self.high_energy_ratio:.2%}",
                 f"  crest factor    {self.crest_factor_db:.1f} dB",
+                f"  flatness        {self.spectral_flatness:.5f}",
                 f"  harmonic ratio  {self.harmonic_ratio:.2f}",
                 f"  onset strength  {self.onset_strength:.2f}",
                 f"  decay           {self.decay_time_s:.2f} s",
@@ -186,6 +204,7 @@ def extract(path: Path) -> ToneFeatures:
         mid_energy_ratio=mid_e / tonal,
         high_energy_ratio=high_e / tonal,
         crest_factor_db=crest_db,
+        spectral_flatness=float(np.mean(librosa.feature.spectral_flatness(y=y))),
         harmonic_ratio=harmonic_ratio,
         onset_strength=float(np.mean(onset_env)),
         decay_time_s=_decay_time(y, sr),

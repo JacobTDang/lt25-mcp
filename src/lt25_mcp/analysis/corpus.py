@@ -1,9 +1,12 @@
 """A labelled set of clips, so calibration is measured rather than argued.
 
-The gain thresholds in `mapping.py` were set from synthesized signals and one
-real clean clip. Arguing about whether 9.5 dB is the right boundary is not
-worth doing in prose: label some clips, run them through, and count how many
-land in the right bucket.
+Arguing about whether 0.00088 is the right clean boundary is not worth doing
+in prose: label some clips, run them through, and count how many land in the
+right bucket.
+
+Labels come from the amp itself. Recording through a factory preset makes
+Fender's choice of amp model and gain the ground truth, with the same guitar,
+room and player across every take, so the only thing varying is the tone.
 
 `evaluate` reports accuracy and a confusion matrix. `sweep` searches the
 threshold pair for the values that classify the corpus best, which turns
@@ -104,8 +107,8 @@ class Prediction:
 @dataclass
 class Report:
     predictions: list[Prediction]
-    clean_crest: float
-    high_gain_crest: float
+    clean_flat: float
+    high_gain_flat: float
 
     @property
     def accuracy(self) -> float:
@@ -123,18 +126,18 @@ class Report:
 
     def describe(self) -> str:
         lines = [
-            f"thresholds: clean >= {self.clean_crest:.1f} dB, "
-            f"high gain < {self.high_gain_crest:.1f} dB",
+            f"thresholds: clean < {self.clean_flat:.5f} <= crunch < "
+            f"{self.high_gain_flat:.5f} <= high gain",
             f"accuracy: {self.accuracy:.0%} "
             f"({sum(p.correct for p in self.predictions)}/{len(self.predictions)})",
             "",
-            f"{'expected':10} {'predicted':10} {'crest':>7} {'harm':>6}  clip",
+            f"{'expected':10} {'predicted':10} {'flatness':>10} {'harm':>6}  clip",
         ]
         for p in sorted(self.predictions, key=lambda p: (p.sample.label, p.predicted)):
             mark = " " if p.correct else "!"
             lines.append(
                 f"{mark}{p.sample.label:9} {p.predicted:10} "
-                f"{p.features.crest_factor_db:7.1f} {p.features.harmonic_ratio:6.2f}  "
+                f"{p.features.spectral_flatness:10.5f} {p.features.harmonic_ratio:6.2f}  "
                 f"{Path(p.sample.path).name}"
             )
         lines.append("")
@@ -146,13 +149,11 @@ class Report:
         return "\n".join(lines)
 
 
-def _classify(features: ToneFeatures, clean_crest: float, high_gain_crest: float) -> str:
+def _classify(features: ToneFeatures, clean_flat: float, high_gain_flat: float) -> str:
     """The rule from mapping.gain_character, with the thresholds injected."""
-    from lt25_mcp.analysis.mapping import CLEAN_HARMONIC_RATIO
-
-    if features.crest_factor_db >= clean_crest and features.harmonic_ratio >= CLEAN_HARMONIC_RATIO:
+    if features.spectral_flatness < clean_flat:
         return "clean"
-    if features.crest_factor_db < high_gain_crest:
+    if features.spectral_flatness >= high_gain_flat:
         return "high_gain"
     return "crunch"
 
@@ -170,31 +171,31 @@ def measure(corpus: Corpus) -> list[tuple[Sample, ToneFeatures]]:
 
 def evaluate(
     corpus: Corpus,
-    clean_crest: float | None = None,
-    high_gain_crest: float | None = None,
+    clean_flat: float | None = None,
+    high_gain_flat: float | None = None,
     measured: list[tuple[Sample, ToneFeatures]] | None = None,
 ) -> Report:
     """Classify every sample and count how many land in the right bucket."""
-    from lt25_mcp.analysis.mapping import CLEAN_CREST_DB, HIGH_GAIN_CREST_DB
+    from lt25_mcp.analysis.mapping import CLEAN_FLATNESS, HIGH_GAIN_FLATNESS
 
-    clean_crest = CLEAN_CREST_DB if clean_crest is None else clean_crest
-    high_gain_crest = HIGH_GAIN_CREST_DB if high_gain_crest is None else high_gain_crest
+    clean_flat = CLEAN_FLATNESS if clean_flat is None else clean_flat
+    high_gain_flat = HIGH_GAIN_FLATNESS if high_gain_flat is None else high_gain_flat
     measured = measure(corpus) if measured is None else measured
 
     return Report(
         predictions=[
-            Prediction(sample, features, _classify(features, clean_crest, high_gain_crest))
+            Prediction(sample, features, _classify(features, clean_flat, high_gain_flat))
             for sample, features in measured
         ],
-        clean_crest=clean_crest,
-        high_gain_crest=high_gain_crest,
+        clean_flat=clean_flat,
+        high_gain_flat=high_gain_flat,
     )
 
 
 def sweep(
     corpus: Corpus,
-    clean_range: tuple[float, float, float] = (6.0, 16.0, 0.5),
-    high_range: tuple[float, float, float] = (1.0, 9.0, 0.5),
+    clean_range: tuple[float, float, float] = (0.00001, 0.0030, 0.00001),
+    high_range: tuple[float, float, float] = (0.00002, 0.0080, 0.00001),
 ) -> tuple[Report, list[Report]]:
     """Search the threshold pair for the best fit to the corpus.
 
@@ -209,15 +210,17 @@ def sweep(
     def steps(spec):
         low, high, step = spec
         n = int(round((high - low) / step)) + 1
-        return [round(low + i * step, 3) for i in range(n)]
+        # Rounding to 3 decimals would flatten every candidate to zero:
+        # flatness thresholds live around 0.001.
+        return [round(low + i * step, 8) for i in range(n)]
 
     reports = []
     for clean, high in itertools.product(steps(clean_range), steps(high_range)):
-        if high >= clean:
+        if high <= clean:
             continue
         reports.append(evaluate(corpus, clean, high, measured=measured))
     if not reports:
         raise CorpusError("no valid threshold pairs in the given ranges")
 
-    best = max(reports, key=lambda r: (r.accuracy, r.clean_crest - r.high_gain_crest))
+    best = max(reports, key=lambda r: (r.accuracy, r.high_gain_flat - r.clean_flat))
     return best, reports

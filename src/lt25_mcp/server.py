@@ -477,6 +477,57 @@ def calibrate_guitar(name: str, seconds: float = 20.0, pickups: str = "unknown")
 
 @server.tool(
     description=(
+        "Rename a calibrated guitar, keeping its measurements and whether it is "
+        "the reference."
+    )
+)
+def rename_guitar(old_name: str, new_name: str) -> dict[str, Any]:
+    library = GuitarLibrary.load()
+    try:
+        profile = library.rename(old_name, new_name)
+    except GuitarError as exc:
+        raise ValueError(str(exc)) from exc
+    library.save()
+    rig = Rig.load()
+    if rig.playing == old_name:
+        rig.playing = new_name
+        rig.save()
+    return {"renamed": f"{old_name} -> {new_name}", "summary": profile.describe()}
+
+
+@server.tool(description="Forget a calibrated guitar profile.")
+def forget_guitar(name: str) -> dict[str, Any]:
+    library = GuitarLibrary.load()
+    try:
+        library.remove(name)
+    except GuitarError as exc:
+        raise ValueError(str(exc)) from exc
+    library.save()
+    rig = Rig.load()
+    if rig.playing == name:
+        rig.playing = ""
+        rig.save()
+    return {"forgot": name, "remaining": sorted(library.guitars)}
+
+
+@server.tool(
+    description=(
+        "Make a calibrated guitar the reference - the one presets are built "
+        "around. Every other guitar adapts by its measured difference from it."
+    )
+)
+def set_reference_guitar(name: str) -> dict[str, Any]:
+    library = GuitarLibrary.load()
+    try:
+        profile = library.set_reference(name)
+    except GuitarError as exc:
+        raise ValueError(str(exc)) from exc
+    library.save()
+    return {"reference": name, "summary": profile.describe()}
+
+
+@server.tool(
+    description=(
         "Say which calibrated guitar is now plugged in, so presets adapt to it."
     )
 )

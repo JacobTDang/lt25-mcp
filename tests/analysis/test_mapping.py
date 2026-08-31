@@ -28,6 +28,7 @@ def features(**overrides) -> ToneFeatures:
         mid_energy_ratio=0.28,
         high_energy_ratio=0.15,
         crest_factor_db=11.0,
+        spectral_flatness=0.0015,   # mid-crunch
         harmonic_ratio=0.70,
         onset_strength=1.5,
         decay_time_s=0.8,
@@ -40,17 +41,18 @@ def features(**overrides) -> ToneFeatures:
     return ToneFeatures(**base)
 
 
-# A pure sine measures 3.0 dB crest and a square wave 0.0 dB, so these sit
-# either side of the thresholds in mapping.py.
-CLEAN = dict(crest_factor_db=13.0, harmonic_ratio=0.9, spectral_centroid_hz=1400.0)
-HIGH_GAIN = dict(crest_factor_db=2.5, harmonic_ratio=0.45, spectral_centroid_hz=3200.0)
+# Flatness values measured on real amp output: clean ran 0.00001-0.00113,
+# crunch 0.00089-0.00233, high gain 0.00285-0.00621. These sit clear of the
+# boundaries in mapping.py.
+CLEAN = dict(spectral_flatness=0.0004, harmonic_ratio=0.9, spectral_centroid_hz=1400.0)
+HIGH_GAIN = dict(spectral_flatness=0.0045, harmonic_ratio=0.45, spectral_centroid_hz=3200.0)
 
 
 class TestGainCharacter:
-    def test_dynamic_and_harmonic_reads_clean(self):
+    def test_a_peaky_spectrum_reads_clean(self):
         assert gain_character(features(**CLEAN)) == "clean"
 
-    def test_compressed_and_noisy_reads_high_gain(self):
+    def test_a_flat_spectrum_reads_high_gain(self):
         assert gain_character(features(**HIGH_GAIN)) == "high_gain"
 
     def test_middle_ground_reads_crunch(self):
@@ -58,11 +60,13 @@ class TestGainCharacter:
 
     def test_boundaries_are_stable(self):
         """A tone right at a threshold must land in exactly one bucket."""
-        for crest in (4.4, 4.5, 4.6, 9.4, 9.5, 9.6):
-            assert gain_character(features(crest_factor_db=crest)) in {
-                "clean",
-                "crunch",
-                "high_gain",
+        from lt25_mcp.analysis.mapping import CLEAN_FLATNESS, HIGH_GAIN_FLATNESS
+
+        for flat in (CLEAN_FLATNESS - 1e-6, CLEAN_FLATNESS, CLEAN_FLATNESS + 1e-6,
+                     HIGH_GAIN_FLATNESS - 1e-6, HIGH_GAIN_FLATNESS,
+                     HIGH_GAIN_FLATNESS + 1e-6):
+            assert gain_character(features(spectral_flatness=flat)) in {
+                "clean", "crunch", "high_gain",
             }
 
 
@@ -227,22 +231,20 @@ class TestConfidence:
     def test_a_clear_clean_tone_is_confident(self):
         from lt25_mcp.analysis.mapping import choose_amp
 
-        choice = choose_amp(features(crest_factor_db=18.0, harmonic_ratio=0.95))
+        choice = choose_amp(features(spectral_flatness=0.00001, harmonic_ratio=0.95))
         assert choice.confidence > 0.8
 
     def test_a_tone_on_the_boundary_is_not_confident(self):
-        from lt25_mcp.analysis.mapping import CLEAN_CREST_DB, choose_amp
+        from lt25_mcp.analysis.mapping import CLEAN_FLATNESS, choose_amp
 
-        choice = choose_amp(
-            features(crest_factor_db=CLEAN_CREST_DB, harmonic_ratio=0.9)
-        )
+        choice = choose_amp(features(spectral_flatness=CLEAN_FLATNESS))
         assert choice.confidence < 0.35
 
     def test_confidence_is_a_fraction(self):
         from lt25_mcp.analysis.mapping import choose_amp
 
-        for crest in (0.0, 2.0, 4.5, 7.0, 9.5, 12.0, 20.0):
-            c = choose_amp(features(crest_factor_db=crest))
+        for flat in (0.0, 0.0005, 0.001, 0.002, 0.003, 0.006, 0.05):
+            c = choose_amp(features(spectral_flatness=flat))
             assert 0.0 <= c.confidence <= 1.0
 
     def test_choice_names_the_model_and_a_reason(self):
@@ -254,11 +256,9 @@ class TestConfidence:
 
     def test_borderline_offers_the_neighbouring_character(self):
         """If it could plausibly be crunch, say which amp that would be."""
-        from lt25_mcp.analysis.mapping import CLEAN_CREST_DB, choose_amp
+        from lt25_mcp.analysis.mapping import CLEAN_FLATNESS, choose_amp
 
-        choice = choose_amp(
-            features(crest_factor_db=CLEAN_CREST_DB + 0.1, harmonic_ratio=0.9)
-        )
+        choice = choose_amp(features(spectral_flatness=CLEAN_FLATNESS + 1e-6))
         assert choice.alternatives
         assert all(a in AMP_MODELS for a in choice.alternatives)
         assert choice.amp_model not in choice.alternatives
@@ -266,7 +266,7 @@ class TestConfidence:
     def test_a_confident_choice_offers_no_alternatives(self):
         from lt25_mcp.analysis.mapping import choose_amp
 
-        choice = choose_amp(features(crest_factor_db=20.0, harmonic_ratio=0.99))
+        choice = choose_amp(features(spectral_flatness=0.00001, harmonic_ratio=0.99))
         assert choice.alternatives == []
 
     def test_choose_amp_model_still_returns_the_primary(self):
@@ -278,9 +278,9 @@ class TestConfidence:
 
 class TestDescribeReportsUncertainty:
     def test_describe_settings_mentions_low_confidence(self, sample_preset):
-        from lt25_mcp.analysis.mapping import CLEAN_CREST_DB, choose_amp
+        from lt25_mcp.analysis.mapping import CLEAN_FLATNESS, choose_amp
 
-        f = features(crest_factor_db=CLEAN_CREST_DB, harmonic_ratio=0.9)
+        f = features(spectral_flatness=CLEAN_FLATNESS)
         text = describe_settings(build_preset(f, sample_preset), choice=choose_amp(f))
         assert "confiden" in text.lower() or "uncertain" in text.lower()
 
