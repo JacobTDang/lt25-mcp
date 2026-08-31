@@ -165,3 +165,30 @@ class TestHeartbeat:
         settled = len(transport.sent)
         time.sleep(0.1)
         assert len(transport.sent) == settled
+
+
+class TestCloseIsSafe:
+    def test_close_does_not_double_close_the_transport(self):
+        """A real Transport has no `closed` attribute; do not rely on one."""
+
+        class CountingTransport(ScriptedTransport):
+            def __init__(self, replies=None):
+                super().__init__(replies)
+                self.close_count = 0
+
+            def close(self):
+                self.close_count += 1
+                self.closed = True
+
+        transport = CountingTransport(handshake_replies())
+        session = Session(transport, heartbeat=False)
+        session.open()
+        session.close()
+        session.close()
+        session.close()
+        assert transport.close_count == 1
+
+    def test_close_before_open_still_closes_the_transport(self):
+        transport = ScriptedTransport()
+        Session(transport, heartbeat=False).close()
+        assert transport.closed

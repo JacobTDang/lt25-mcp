@@ -69,3 +69,18 @@ class TestFailuresAreLoud:
         dest = tmp_path / "out" / "a.wav"
         assert fetch_audio("https://x", dest, runner=ok) == dest
         assert dest.parent.is_dir()
+
+
+class TestOpenEndedTrim:
+    def test_no_end_omits_the_to_flag(self):
+        argv = trim_argv(Path("a.wav"), 3.0, None, Path("b.wav"))
+        assert "-ss" in argv
+        assert "-to" not in argv
+
+    def test_no_start_defaults_to_zero(self):
+        argv = trim_argv(Path("a.wav"), None, 10.0, Path("b.wav"))
+        assert argv[argv.index("-ss") + 1] == "0.0"
+
+    def test_still_rejects_an_inverted_range(self):
+        with pytest.raises(AcquisitionError, match="must be after"):
+            trim_argv(Path("a.wav"), 10.0, 5.0, Path("b.wav"))

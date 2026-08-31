@@ -62,9 +62,7 @@ def analyse(
             raise PipelineError(f"no such audio file: {source}")
 
     if start is not None or end is not None:
-        source = acquire.trim(
-            source, start or 0.0, end if end is not None else 1e9, work_dir / "clip.wav"
-        )
+        source = acquire.trim(source, start, end, work_dir / "clip.wav")
 
     stem = None
     if separate:

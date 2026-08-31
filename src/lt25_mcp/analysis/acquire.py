@@ -45,19 +45,22 @@ def download_argv(url: str, dest: Path) -> list[str]:
     ]
 
 
-def trim_argv(src: Path, start: float, end: float, dest: Path) -> list[str]:
-    """The ffmpeg invocation used to cut a segment out of a file."""
-    if end <= start:
+def trim_argv(
+    src: Path, start: float | None, end: float | None, dest: Path
+) -> list[str]:
+    """The ffmpeg invocation used to cut a segment out of a file.
+
+    An omitted `end` means "to the end of the file"; passing a huge sentinel
+    instead would put a nonsense timestamp on the command line.
+    """
+    start = 0.0 if start is None else float(start)
+    if end is not None and float(end) <= start:
         raise AcquisitionError(f"end ({end}) must be after start ({start})")
-    return [
-        "ffmpeg", "-y",
-        "-i", str(src),
-        "-ss", f"{start}",
-        "-to", f"{end}",
-        "-ac", "1",
-        "-ar", str(SAMPLE_RATE),
-        str(dest),
-    ]
+    argv = ["ffmpeg", "-y", "-i", str(src), "-ss", f"{start}"]
+    if end is not None:
+        argv += ["-to", f"{float(end)}"]
+    argv += ["-ac", "1", "-ar", str(SAMPLE_RATE), str(dest)]
+    return argv
 
 
 def fetch_audio(url: str, dest: Path, *, runner: Runner | None = None) -> Path:
@@ -75,7 +78,14 @@ def fetch_audio(url: str, dest: Path, *, runner: Runner | None = None) -> Path:
     return dest
 
 
-def trim(src: Path, start: float, end: float, dest: Path, *, runner: Runner | None = None) -> Path:
+def trim(
+    src: Path,
+    start: float | None,
+    end: float | None,
+    dest: Path,
+    *,
+    runner: Runner | None = None,
+) -> Path:
     """Cut `src` down to the segment between `start` and `end` seconds."""
     run = runner or _run
     if runner is None:

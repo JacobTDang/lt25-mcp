@@ -44,6 +44,7 @@ class Session:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._open = False
+        self._closed = False
         self.stale_packets_dropped = 0
 
     @property
@@ -112,16 +113,15 @@ class Session:
         return reply.productIdentificationStatus.id
 
     def close(self) -> None:
+        """Stop the heartbeat and release the transport. Idempotent."""
         if self._thread is not None:
             self._stop.set()
             self._thread.join(timeout=2.0)
             self._thread = None
-        if self._open or not self._transport_closed():
+        if not self._closed:
+            self._closed = True
             self._transport.close()
         self._open = False
-
-    def _transport_closed(self) -> bool:
-        return getattr(self._transport, "closed", False)
 
     def _start_heartbeat(self) -> None:
         self._stop.clear()
