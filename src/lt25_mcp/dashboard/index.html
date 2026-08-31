@@ -1,263 +1,216 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LT25 · workbench</title>
+<title>LT25 Workbench</title>
 <style>
-  /* Dark is the primary design here - a black workbench you watch a run on.
-     Light is a selected alternate stepped from the same ramps, not a flip. */
+  /* Plain utility-software chrome: system fonts, square corners, 1px borders,
+     dense tables. Nothing animates that does not need to. */
   :root {
-    color-scheme: dark;
-    --plane:        #0a0a0a;
-    --surface-1:    #141413;
-    --surface-2:    #1c1c1a;
-    --text-primary: #ffffff;
-    --text-secondary:#c3c2b7;
-    --muted:        #898781;
-    --grid:         #2c2c2a;
-    --axis:         #383835;
-    --series-1:     #3987e5;   /* target  */
-    --series-2:     #d95926;   /* amp now */
-    --pos:          #e66767;   /* too much   */
-    --neg:          #3987e5;   /* too little */
-    --good:         #0ca30c;
-    --warning:      #fab219;
-    --critical:     #d03b3b;
+    --chrome:   #f0f0f0;
+    --panel:    #ffffff;
+    --border:   #a0a0a0;
+    --border-2: #d4d4d4;
+    --sunken:   #808080;
+    --text:     #000000;
+    --text-dim: #555555;
+    --head:     #e8e8e8;
+    --bar:      #0ca30c;
+    --bar-warn: #fab219;
+    --bar-bad:  #d03b3b;
+    --series-1: #2a78d6;   /* target  */
+    --series-2: #eb6834;   /* amp now */
+    --pos:      #e34948;   /* too much   */
+    --neg:      #2a78d6;   /* too little */
+    --grid:     #dcdcdc;
   }
-  :root[data-theme="light"] {
-    color-scheme: light;
-    --plane: #f9f9f7; --surface-1: #fcfcfb; --surface-2: #f2f1ed;
-    --text-primary: #0b0b0b; --text-secondary: #52514e; --muted: #898781;
-    --grid: #e1e0d9; --axis: #c3c2b7;
-    --series-1: #2a78d6; --series-2: #eb6834;
-    --pos: #e34948; --neg: #2a78d6;
-  }
-
   * { box-sizing: border-box }
   body {
-    margin: 0; background: var(--plane); color: var(--text-primary);
-    font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
-    padding: 18px 20px 28px; max-width: 1240px; margin-inline: auto;
+    margin: 0; background: var(--chrome); color: var(--text);
+    font: 12px/1.45 "Segoe UI", Tahoma, -apple-system, system-ui, sans-serif;
   }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace }
+  .app { max-width: 1120px; margin: 0 auto; min-height: 100vh; background: var(--chrome);
+    border-left: 1px solid var(--border-2); border-right: 1px solid var(--border-2);
+    display: flex; flex-direction: column }
 
-  header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px }
-  h1 { font-size: 15px; font-weight: 650; margin: 0; letter-spacing: -0.01em }
-  .sub { color: var(--muted); font-size: 12px }
-  .spacer { margin-left: auto }
-  button { background: var(--surface-2); border: 1px solid var(--axis);
-    color: var(--text-secondary); border-radius: 6px; padding: 4px 10px;
-    font-size: 12px; cursor: pointer; font-family: inherit }
-  button:hover { color: var(--text-primary) }
+  .menubar { border-bottom: 1px solid var(--border-2); padding: 3px 8px;
+    font-size: 12px; color: var(--text-dim) }
+  .menubar b { color: var(--text); font-weight: 600; margin-right: 14px }
 
-  /* ---------- pipeline strip ---------- */
-  .pipeline { background: var(--surface-1); border: 1px solid var(--grid);
-    border-radius: 10px; padding: 14px 16px; margin-bottom: 14px }
-  .pipeline h2, .card h2 { font-size: 11px; font-weight: 600; margin: 0 0 10px;
-    letter-spacing: .07em; text-transform: uppercase; color: var(--muted) }
-  .chain { display: flex; align-items: stretch; gap: 0; overflow-x: auto;
-    padding-bottom: 2px }
-  .step { flex: 1 1 0; min-width: 108px; position: relative; padding: 0 4px }
-  .step + .step::before {
-    content: ""; position: absolute; left: -6px; top: 15px; width: 12px; height: 2px;
-    background: var(--axis); border-radius: 1px;
-  }
-  .step.done + .step::before, .step.running + .step::before { background: var(--good) }
-  .puck { display: flex; align-items: center; gap: 7px; margin-bottom: 5px }
-  .led { width: 9px; height: 9px; border-radius: 50%; background: var(--axis);
-    flex: none; box-shadow: none }
-  .step.running .led { background: var(--warning);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 22%, transparent);
-    animation: blink 1.1s ease-in-out infinite }
-  .step.done .led { background: var(--good) }
-  .step.failed .led { background: var(--critical);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--critical) 25%, transparent) }
-  .step.skipped .led { background: var(--muted); opacity: .5 }
-  @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: .3 } }
-  .step .name { font-size: 12px; color: var(--text-secondary); white-space: nowrap;
-    overflow: hidden; text-overflow: ellipsis }
-  .step.running .name, .step.failed .name { color: var(--text-primary); font-weight: 600 }
-  .step .meta { font-size: 11px; color: var(--muted); padding-left: 16px;
-    min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
-  .step.failed .meta { color: var(--critical); white-space: normal }
-  .bar { height: 2px; background: var(--axis); border-radius: 1px; margin-left: 16px;
-    margin-top: 4px; overflow: hidden }
-  .step.running .bar::after { content: ""; display: block; height: 100%; width: 40%;
-    background: var(--warning); border-radius: 1px; animation: slide 1.2s ease-in-out infinite }
-  .step.done .bar { background: var(--good); opacity: .55 }
-  @keyframes slide { 0% { transform: translateX(-100%) } 100% { transform: translateX(320%) } }
+  .body { padding: 8px; flex: 1 }
 
-  /* ---------- signal chain bench ---------- */
-  .bench { background: #000; border: 1px solid var(--grid); border-radius: 10px;
-    padding: 16px 16px 12px; margin-bottom: 14px;
-    background-image: radial-gradient(circle at 50% 0%,
-      rgb(255 255 255 / .045), transparent 62%) }
-  .bench h2 { color: var(--muted) }
-  #board { width: 100%; height: auto; display: block }
-  .pedal-name { fill: #fff; font-size: 11px; font-weight: 650;
-    letter-spacing: .02em }
-  .pedal-slot { fill: var(--muted); font-size: 9px; letter-spacing: .12em;
-    text-transform: uppercase }
-  .pedal-set { fill: var(--text-secondary); font-size: 9px }
-  .knob-cap { fill: #d8d6cd; stroke: #6b6a63; stroke-width: .8 }
-  .knob-cap.off { fill: #4a4945; stroke: #35342f }
-  .knob-line { stroke: #17171a; stroke-width: 1.6; stroke-linecap: round }
-  .knob-lbl { fill: var(--muted); font-size: 7.5px; text-anchor: middle }
+  fieldset { border: 1px solid var(--border-2); margin: 0 0 8px; padding: 8px 10px 10px }
+  legend { padding: 0 5px; font-weight: 600 }
+  .row { display: flex; gap: 8px; align-items: flex-start }
+  .row > fieldset { flex: 1 1 0; min-width: 0 }
 
-  /* ---------- cards ---------- */
-  .grid { display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr) }
-  .card { background: var(--surface-1); border: 1px solid var(--grid);
-    border-radius: 10px; padding: 14px 16px; min-width: 0 }
-  .card .note { font-size: 12px; color: var(--muted); margin: -6px 0 10px }
-  .span-4 { grid-column: span 4 } .span-5 { grid-column: span 5 }
-  .span-7 { grid-column: span 7 } .span-8 { grid-column: span 8 }
-  .span-12 { grid-column: span 12 }
-  @media (max-width: 900px) { .card { grid-column: span 12 !important } }
+  table { border-collapse: collapse; width: 100%; background: var(--panel); font-size: 12px }
+  th, td { border: 1px solid var(--border-2); padding: 2px 6px; text-align: left;
+    white-space: nowrap }
+  th { background: var(--head); font-weight: 600 }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums }
+  td.idx { text-align: right; color: var(--text-dim); width: 22px; background: var(--head) }
+  td.wide { white-space: normal }
+  .wrap { border: 1px solid var(--border); border-top-color: var(--sunken);
+    border-left-color: var(--sunken); background: var(--panel); overflow: auto }
 
-  .hero { display: flex; align-items: baseline; gap: 12px }
-  .hero .value { font-size: 44px; font-weight: 640; letter-spacing: -.03em;
-    line-height: 1; font-variant-numeric: tabular-nums }
-  .badge { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px;
-    border: 1px solid currentColor; margin-left: auto }
-  .badge.good { color: var(--good) } .badge.working { color: var(--warning) }
+  /* classic sunken progress bar */
+  .pb { height: 13px; border: 1px solid var(--border); border-top-color: var(--sunken);
+    border-left-color: var(--sunken); background: var(--panel); overflow: hidden }
+  .pb > i { display: block; height: 100%; background: var(--bar); width: 0 }
+  .pb.warn > i { background: var(--bar-warn) }
+  .pb.bad  > i { background: var(--bar-bad) }
+  .pb.busy > i { width: 34%; animation: march 1.1s linear infinite }
+  @keyframes march { from { transform: translateX(-105%) } to { transform: translateX(330%) } }
 
-  svg { display: block; width: 100%; overflow: visible }
+  .kv { display: flex; gap: 6px; align-items: baseline; margin-bottom: 4px }
+  .kv label { color: var(--text-dim); min-width: 70px }
+  .kv b { font-variant-numeric: tabular-nums }
+
+  .statusbar { border-top: 1px solid var(--border-2); padding: 3px 8px;
+    display: flex; gap: 8px; align-items: center; font-size: 12px }
+  .statusbar .cell { border: 1px solid var(--border-2); border-right-color: #fff;
+    border-bottom-color: #fff; padding: 1px 7px; color: var(--text-dim) }
+  .statusbar .grow { flex: 1 }
+
+  svg { display: block; width: 100% }
   .gridline { stroke: var(--grid); stroke-width: 1 }
-  .axisline { stroke: var(--axis); stroke-width: 1 }
-  .tick { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums }
-  .lbl { fill: var(--text-secondary); font-size: 11px }
-  .val { fill: var(--text-primary); font-size: 11px; font-weight: 600;
-    font-variant-numeric: tabular-nums }
-  .series { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round }
-  .marker { stroke: var(--surface-1); stroke-width: 2 }
+  .axisline { stroke: var(--border); stroke-width: 1 }
+  .tick { fill: var(--text-dim); font-size: 10px; font-variant-numeric: tabular-nums }
+  .lbl  { fill: var(--text-dim); font-size: 11px }
+  .val  { fill: var(--text); font-size: 11px; font-variant-numeric: tabular-nums }
+  .series { fill: none; stroke-width: 1.5 }
 
-  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-secondary);
-    margin-bottom: 8px }
-  .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block;
-    margin-right: 5px; vertical-align: -1px }
+  .legend { font-size: 11px; color: var(--text-dim); margin-bottom: 4px }
+  .legend i { display: inline-block; width: 9px; height: 9px; margin: 0 4px 0 12px;
+    vertical-align: -1px }
+  .legend i:first-child { margin-left: 0 }
 
-  ul.moves { list-style: none; margin: 0; padding: 0 }
-  ul.moves li { display: flex; gap: 10px; padding: 6px 0; font-size: 13px;
-    border-bottom: 1px solid var(--grid) }
-  ul.moves li:last-child { border-bottom: none }
-  .knobname { min-width: 46px; color: var(--text-secondary) }
-  .delta { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 44px }
-  .why { color: var(--text-secondary) }
-  .empty { color: var(--muted); font-size: 13px; padding: 8px 0 }
+  pre.log { margin: 0; font: 11px/1.5 ui-monospace, Consolas, "Courier New", monospace;
+    background: var(--panel); border: 1px solid var(--border);
+    border-top-color: var(--sunken); border-left-color: var(--sunken);
+    padding: 5px 7px; height: 112px; overflow: auto; white-space: pre-wrap }
+  .none { color: #999; padding: 3px 0 }
 
-  .log { font: 11.5px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: var(--text-secondary); max-height: 168px; overflow-y: auto;
-    white-space: pre-wrap; background: var(--surface-2); border-radius: 7px;
-    padding: 9px 11px; border: 1px solid var(--grid) }
-
-  table { border-collapse: collapse; width: 100%; font-size: 12px;
-    font-variant-numeric: tabular-nums }
-  th, td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--grid) }
-  th:first-child, td:first-child { text-align: left }
-  th { color: var(--text-secondary); font-weight: 600 }
-  details { margin-top: 10px } summary { cursor: pointer; color: var(--muted); font-size: 12px }
-
-  .tip { position: fixed; pointer-events: none; opacity: 0; transition: opacity .1s;
-    background: var(--surface-2); border: 1px solid var(--axis); border-radius: 7px;
-    padding: 6px 9px; font-size: 12px; box-shadow: 0 6px 20px rgb(0 0 0 / .5);
-    z-index: 10; max-width: 270px }
-  .tip.on { opacity: 1 }
-  .tip b { font-variant-numeric: tabular-nums }
+  /* signal chain, drawn plainly */
+  .chain { display: flex; align-items: stretch; gap: 6px; overflow-x: auto;
+    background: var(--panel); border: 1px solid var(--border);
+    border-top-color: var(--sunken); border-left-color: var(--sunken); padding: 7px }
+  .unit { border: 1px solid var(--border-2); background: var(--chrome);
+    min-width: 128px; flex: 1 1 0; padding: 4px 6px 6px }
+  .unit.off { background: #f7f7f7; color: #999 }
+  .unit .slot { font-size: 10px; letter-spacing: .06em; color: var(--text-dim);
+    display: flex; align-items: center; justify-content: space-between }
+  .unit .led { width: 7px; height: 7px; border: 1px solid #7a7a7a; background: #cfcfcf }
+  .unit.on .led { background: var(--bar); border-color: #0a7a0a }
+  .unit .nm { font-weight: 600; margin: 1px 0 2px }
+  .unit .set { font-size: 10px; color: var(--text-dim); min-height: 13px }
+  .unit table { margin-top: 3px; background: transparent }
+  .unit td { border: none; padding: 0; font-size: 10px }
+  .unit td.v { text-align: right; font-variant-numeric: tabular-nums }
+  .endcap { flex: 0 0 54px; display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border-2); background: #f7f7f7; font-size: 10px;
+    color: var(--text-dim); letter-spacing: .04em }
 </style>
 
-<header>
-  <div>
-    <h1>LT25 workbench</h1>
-    <div class="sub" id="subtitle">waiting for a run</div>
+<div class="app">
+  <div class="menubar"><b>LT25 Workbench</b><span id="conn">connecting…</span></div>
+
+  <div class="body">
+    <fieldset>
+      <legend>Pipeline</legend>
+      <div class="wrap" style="max-height:186px">
+        <table id="stages">
+          <thead><tr>
+            <th style="width:22px"></th><th>Stage</th><th style="width:74px">Status</th>
+            <th style="width:180px">Progress</th><th class="num" style="width:60px">Time</th>
+            <th>Detail</th>
+          </tr></thead>
+          <tbody><tr><td colspan="6" class="none">No run started.</td></tr></tbody>
+        </table>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Signal chain</legend>
+      <div class="chain" id="chain"><div class="none">No preset loaded.</div></div>
+    </fieldset>
+
+    <div class="row">
+      <fieldset style="flex:0 0 296px">
+        <legend>Convergence</legend>
+        <div class="kv"><label>Distance</label><b id="distance">—</b><span id="verdict"></span></div>
+        <div class="kv"><label>Change</label><b id="trend">—</b></div>
+        <div class="kv"><label>Iterations</label><b id="itercount">0</b></div>
+        <div class="kv"><label>Target</label><b id="tname" style="font-weight:400">—</b></div>
+        <div class="kv"><label>Preset</label><b id="pname" style="font-weight:400">—</b></div>
+        <svg id="trendChart" height="100" role="img"
+          aria-label="Distance to target over iterations"></svg>
+      </fieldset>
+
+      <fieldset>
+        <legend>Band balance vs target</legend>
+        <table id="gaps">
+          <thead><tr>
+            <th>Band</th><th class="num" style="width:68px">Gap</th>
+            <th style="width:56px">State</th><th style="width:180px">Deviation</th>
+            <th class="num" style="width:60px">Knob</th>
+          </tr></thead>
+          <tbody><tr><td colspan="5" class="none">No comparison yet.</td></tr></tbody>
+        </table>
+        <div style="margin-top:7px"><svg id="gapChart" height="84" role="img"
+          aria-label="Band gaps around zero"></svg></div>
+      </fieldset>
+    </div>
+
+    <fieldset>
+      <legend>Spectrum</legend>
+      <div class="legend">
+        <i style="background:var(--series-1)"></i>target
+        <i style="background:var(--series-2)"></i>amp now
+      </div>
+      <svg id="specChart" height="172" role="img"
+        aria-label="Target spectrum with the amp's spectrum overlaid"></svg>
+    </fieldset>
+
+    <div class="row">
+      <fieldset style="flex:0 0 322px">
+        <legend>Amp controls</legend>
+        <table id="knobs">
+          <thead><tr><th>Control</th><th class="num" style="width:50px">Value</th>
+            <th style="width:146px">0–10</th></tr></thead>
+          <tbody><tr><td colspan="3" class="none">No preset loaded.</td></tr></tbody>
+        </table>
+      </fieldset>
+
+      <fieldset>
+        <legend>Next move</legend>
+        <table id="moves">
+          <thead><tr><th style="width:58px">Control</th><th class="num" style="width:54px">Delta</th>
+            <th>Reason</th></tr></thead>
+          <tbody><tr><td colspan="3" class="none">Nothing suggested.</td></tr></tbody>
+        </table>
+      </fieldset>
+    </div>
+
+    <fieldset>
+      <legend>Log</legend>
+      <pre class="log" id="log"></pre>
+    </fieldset>
   </div>
-  <div class="spacer"></div>
-  <div class="sub mono" id="status"></div>
-  <button id="theme">light</button>
-</header>
 
-<section class="pipeline">
-  <h2>Pipeline</h2>
-  <div class="chain" id="chain">
-    <div class="empty">no run started</div>
+  <div class="statusbar">
+    <span class="cell" id="sbStatus">waiting</span>
+    <span class="cell" id="sbStage">—</span>
+    <span class="grow"></span>
+    <span class="cell" id="sbIter">iteration 0</span>
+    <span class="cell" id="sbAmp">—</span>
   </div>
-</section>
-
-<section class="bench">
-  <h2>Signal chain</h2>
-  <svg id="board" viewBox="0 0 1180 176" preserveAspectRatio="xMidYMid meet"
-    role="img" aria-label="The amp's signal chain as a pedalboard"></svg>
-</section>
-
-<div class="grid">
-  <section class="card span-5">
-    <h2>Distance to target</h2>
-    <p class="note">Lower is closer. Under 0.08 counts as converged.</p>
-    <div class="hero">
-      <span class="value" id="distance">—</span>
-      <span class="sub mono" id="trend"></span>
-      <span class="badge" id="badge"></span>
-    </div>
-    <div style="margin-top:12px">
-      <svg id="trendChart" height="118" role="img"
-        aria-label="Distance to target over iterations"></svg>
-    </div>
-  </section>
-
-  <section class="card span-7">
-    <h2>Where the tone is off</h2>
-    <p class="note">Right of centre, the amp has too much of that band. Left, too little.</p>
-    <svg id="gapChart" height="148" role="img" aria-label="Band gaps versus the target"></svg>
-  </section>
-
-  <section class="card span-12">
-    <h2>Spectrum</h2>
-    <div class="legend">
-      <span><span class="swatch" style="background:var(--series-1)"></span>target</span>
-      <span><span class="swatch" style="background:var(--series-2)"></span>amp now</span>
-    </div>
-    <svg id="specChart" height="212" role="img"
-      aria-label="Target spectrum with the amp's current spectrum overlaid"></svg>
-    <details><summary>Table view</summary>
-      <table id="specTable"><thead><tr><th>Hz</th><th>target dB</th><th>amp dB</th><th>diff</th></tr></thead><tbody></tbody></table>
-    </details>
-  </section>
-
-  <section class="card span-5">
-    <h2>Knobs</h2>
-    <p class="note">Current preset, on the amp's own 0–10 scale.</p>
-    <svg id="knobChart" height="150" role="img" aria-label="Current knob positions"></svg>
-  </section>
-
-  <section class="card span-7">
-    <h2>Next move</h2>
-    <p class="note">Derived from the measured gap, not from a rule of thumb.</p>
-    <ul class="moves" id="moves"></ul>
-    <details open><summary>Run log</summary><div class="log" id="log"></div></details>
-  </section>
 </div>
-
-<div class="tip" id="tip"></div>
 
 <script>
 const $ = id => document.getElementById(id);
-const tip = $("tip");
 const fmt = (n, d = 2) => Number(n).toFixed(d);
-
-$("theme").onclick = () => {
-  const light = document.documentElement.getAttribute("data-theme") === "light";
-  document.documentElement.setAttribute("data-theme", light ? "dark" : "light");
-  $("theme").textContent = light ? "light" : "dark";
-  if (last) draw(last);
-};
-
-function showTip(evt, html) {
-  tip.innerHTML = html; tip.classList.add("on");
-  const pad = 14; let x = evt.clientX + pad, y = evt.clientY + pad;
-  const r = tip.getBoundingClientRect();
-  if (x + r.width > innerWidth - 8) x = evt.clientX - r.width - pad;
-  if (y + r.height > innerHeight - 8) y = evt.clientY - r.height - pad;
-  tip.style.left = x + "px"; tip.style.top = y + "px";
-}
-const hideTip = () => tip.classList.remove("on");
+const esc = s => String(s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 
 function svgEl(n, a = {}) {
   const el = document.createElementNS("http://www.w3.org/2000/svg", n);
@@ -266,369 +219,230 @@ function svgEl(n, a = {}) {
 }
 const text = (a, t) => Object.assign(svgEl("text", a), { textContent: t });
 function reset(svg) { while (svg.firstChild) svg.removeChild(svg.firstChild);
-  return svg.clientWidth || svg.parentNode.clientWidth || 600; }
+  return svg.clientWidth || svg.parentNode.clientWidth || 560; }
+const body = id => $(id).querySelector("tbody");
+const emptyRow = (id, cols, msg) => {
+  body(id).innerHTML = `<tr><td colspan="${cols}" class="none">${msg}</td></tr>`;
+};
 
-/* ---------- pipeline strip: what is happening right now ---------- */
-function drawChain(stages) {
-  const chain = $("chain");
-  chain.innerHTML = "";
-  if (!stages || !stages.length) {
-    chain.innerHTML = '<div class="empty">no run started</div>';
-    return;
-  }
-  stages.forEach(s => {
-    const div = document.createElement("div");
-    div.className = "step " + s.status;
-    const meta = s.status === "failed" ? s.detail
-      : s.seconds != null ? `${fmt(s.seconds, 1)}s`
-      : s.status === "running" ? (s.detail || "working…")
-      : s.status === "skipped" ? (s.detail || "skipped")
-      : "";
-    div.innerHTML =
-      `<div class="puck"><span class="led"></span><span class="name">${s.name}</span></div>` +
-      `<div class="meta">${meta}</div><div class="bar"></div>`;
-    if (s.detail) {
-      div.onmousemove = e => showTip(e, `<b>${s.name}</b> — ${s.status}<br>${s.detail}`);
-      div.onmouseleave = hideTip;
-    }
-    chain.appendChild(div);
+/* ---------------- pipeline ---------------- */
+function drawStages(stages) {
+  if (!stages || !stages.length) return emptyRow("stages", 6, "No run started.");
+  const tb = body("stages"); tb.innerHTML = "";
+  stages.forEach((s, i) => {
+    const cls = s.status === "running" ? "busy warn"
+      : s.status === "failed" ? "bad" : "";
+    const width = (s.status === "done" || s.status === "failed") ? 100 : 0;
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      `<td class="idx">${i + 1}</td><td>${esc(s.name)}</td><td>${s.status}</td>` +
+      `<td><div class="pb ${cls}"><i style="width:${width}%"></i></div></td>` +
+      `<td class="num">${s.seconds != null ? fmt(s.seconds, 2) + "s" : ""}</td>` +
+      `<td class="wide">${esc(s.detail || "")}</td>`;
+    tb.appendChild(tr);
   });
 }
 
-/* ---------- the board: guitar -> pedals -> amp -> cab ---------- */
-const SLOT_HUE = { stomp: "var(--series-2)", mod: "#9085e9",
-                   delay: "#1baf7a", reverb: "#3987e5" };
-
-function knob(g, cx, cy, value, label, lit) {
-  const r = 9;
-  g.appendChild(svgEl("circle", { cx, cy, r: r + 2.5, fill: "#0f0f11" }));
-  g.appendChild(svgEl("circle", { cx, cy, r, class: "knob-cap" + (lit ? "" : " off") }));
-  const a = (-135 + 270 * Math.max(0, Math.min(1, value))) * Math.PI / 180;
-  g.appendChild(svgEl("line", { x1: cx, y1: cy, class: "knob-line",
-    x2: cx + Math.sin(a) * (r - 2.5), y2: cy - Math.cos(a) * (r - 2.5) }));
-  if (label) g.appendChild(text({ x: cx, y: cy + r + 10, class: "knob-lbl" }, label));
-}
-
-function pedal(svg, x, node) {
-  const W = 132, H = 132, y = 22, lit = node.occupied;
-  const hue = node.kind === "amp" ? "var(--series-1)" : (SLOT_HUE[node.node] || "#888");
-  const g = svgEl("g");
-
-  g.appendChild(svgEl("rect", { x, y, width: W, height: H, rx: 11,
-    fill: lit ? "#1e1e21" : "#121213",
-    stroke: lit ? hue : "#2a2a28", "stroke-width": lit ? 1.6 : 1,
-    "stroke-dasharray": lit ? "none" : "4 4" }));
-  if (lit) g.appendChild(svgEl("rect", { x: x + 1.5, y: y + 1.5, width: W - 3,
-    height: H - 3, rx: 9.5, fill: "none", stroke: "#000", "stroke-width": 1,
-    opacity: .45 }));
-
-  g.appendChild(text({ x: x + 12, y: y + 17, class: "pedal-slot" }, node.node));
-  g.appendChild(svgEl("circle", { cx: x + W - 15, cy: y + 13, r: 4,
-    fill: lit ? hue : "#2e2e2b" }));
-  if (lit) g.appendChild(svgEl("circle", { cx: x + W - 15, cy: y + 13, r: 7,
-    fill: hue, opacity: .22 }));
-
-  g.appendChild(text({ x: x + 12, y: y + 34, class: "pedal-name",
-    fill: lit ? "#fff" : "#5d5c57" }, node.label));
-  if (node.setting) g.appendChild(text({ x: x + 12, y: y + 47, class: "pedal-set" },
-    node.setting));
-
-  const ks = node.knobs || [];
-  const perRow = Math.min(ks.length, node.kind === "amp" ? 4 : 3) || 1;
-  const step = (W - 24) / perRow;
-  ks.slice(0, 4).forEach((k, i) => knob(g,
-    x + 12 + step * (i + .5), y + 74, k.value, k.name, true));
-  if (!ks.length && lit) knob(g, x + W / 2, y + 74, .5, "", true);
-
-  /* footswitch, the thing that makes it read as a pedal */
-  g.appendChild(svgEl("rect", { x: x + W / 2 - 15, y: y + H - 26, width: 30,
-    height: 13, rx: 6, fill: "#0f0f11", stroke: "#333330", "stroke-width": 1 }));
-
-  const hit = svgEl("rect", { x, y, width: W, height: H, rx: 11, fill: "transparent" });
-  hit.onmousemove = e => showTip(e, `<b>${node.node}</b> — ${node.label}` +
-    (node.setting ? `<br>${node.setting}` : "") +
-    (ks.length ? "<br>" + ks.map(k => `${k.full_name || k.name} <b>${fmt(k.value * 10, 1)}</b>`).join(" · ") : "") +
-    (lit ? "" : "<br>slot is empty"));
-  hit.onmouseleave = hideTip;
-  g.appendChild(hit);
-  svg.appendChild(g);
-}
-
-function endpiece(svg, x, kind) {
-  const g = svgEl("g"), y = 52, w = 62, h = 72;
-  g.appendChild(svgEl("rect", { x, y, width: w, height: h, rx: 8,
-    fill: "#121213", stroke: "#2a2a28" }));
-  if (kind === "guitar") {
-    g.appendChild(svgEl("circle", { cx: x + w / 2, cy: y + 30, r: 13,
-      fill: "none", stroke: "#5d5c57", "stroke-width": 2 }));
-    g.appendChild(svgEl("line", { x1: x + w / 2, y1: y + 8, x2: x + w / 2, y2: y + 17,
-      stroke: "#5d5c57", "stroke-width": 2 }));
-  } else {
-    g.appendChild(svgEl("circle", { cx: x + w / 2, cy: y + 30, r: 16,
-      fill: "none", stroke: "#5d5c57", "stroke-width": 2 }));
-    g.appendChild(svgEl("circle", { cx: x + w / 2, cy: y + 30, r: 5, fill: "#5d5c57" }));
-  }
-  g.appendChild(text({ x: x + w / 2, y: y + h - 8, class: "knob-lbl" },
-    kind === "guitar" ? "GUITAR" : "SPEAKER"));
-  svg.appendChild(g);
-}
-
-function drawBoard(chain) {
-  const svg = $("board");
-  while (svg.firstChild) svg.removeChild(svg.firstChild);
-  if (!chain || !chain.length) {
-    svg.appendChild(text({ x: 12, y: 90, class: "lbl" }, "no preset loaded yet"));
-    return;
-  }
-  const gap = 14, pw = 132, ew = 62;
-  let x = 4;
-  endpiece(svg, x, "guitar"); x += ew;
-
-  chain.forEach(node => {
-    svg.appendChild(svgEl("line", { x1: x + 2, x2: x + gap - 2, y1: 88, y2: 88,
-      stroke: node.occupied ? "#4a4945" : "#242422", "stroke-width": 2,
-      "stroke-linecap": "round" }));
-    x += gap;
-    pedal(svg, x, node);
-    x += pw;
+/* ---------------- signal chain ---------------- */
+function drawChain(chain) {
+  const el = $("chain");
+  if (!chain || !chain.length) { el.innerHTML = '<div class="none">No preset loaded.</div>'; return }
+  let html = '<div class="endcap">GUITAR</div>';
+  chain.forEach(n => {
+    const rows = (n.knobs || []).map(k =>
+      `<tr><td>${esc(k.name)}</td><td class="v">${fmt(k.value * 10, 1)}</td></tr>`).join("");
+    html += `<div class="unit ${n.occupied ? "on" : "off"}">` +
+      `<div class="slot"><span>${esc(n.node.toUpperCase())}</span><span class="led"></span></div>` +
+      `<div class="nm">${esc(n.label)}</div>` +
+      `<div class="set">${esc(n.setting || (n.occupied ? "" : "slot empty"))}</div>` +
+      (rows ? `<table>${rows}</table>` : "") + `</div>`;
   });
-  svg.appendChild(svgEl("line", { x1: x + 2, x2: x + gap - 2, y1: 88, y2: 88,
-    stroke: "#4a4945", "stroke-width": 2, "stroke-linecap": "round" }));
-  x += gap;
-  endpiece(svg, x, "speaker"); x += ew + 4;
-  svg.setAttribute("viewBox", `0 0 ${x} 176`);
+  html += '<div class="endcap">SPEAKER</div>';
+  el.innerHTML = html;
 }
 
-/* ---------- distance over iterations: one series, no legend ---------- */
+/* ---------------- distance trend ---------------- */
 function drawTrend(iterations) {
-  const svg = $("trendChart"), W = reset(svg), H = 118;
-  const m = { t: 10, r: 36, b: 20, l: 6 };
+  const svg = $("trendChart"), W = reset(svg), H = 100;
+  const m = { t: 8, r: 30, b: 16, l: 30 };
   if (iterations.length < 2) {
-    svg.appendChild(text({ x: 0, y: 24, class: "lbl" },
+    svg.appendChild(text({ x: 2, y: 20, class: "lbl" },
       iterations.length ? "one iteration so far" : "no iterations yet"));
     return;
   }
   const xs = iterations.map(i => i.index), ys = iterations.map(i => i.distance);
-  const top = Math.max(...ys, 0.1) * 1.15;
+  const top = Math.max(...ys, .1) * 1.15;
   const X = i => m.l + (W - m.l - m.r) * (i - xs[0]) / Math.max(1, xs.at(-1) - xs[0]);
   const Y = v => m.t + (H - m.t - m.b) * (1 - v / top);
 
-  svg.appendChild(svgEl("line", { x1: m.l, x2: W - m.r, y1: Y(0.08), y2: Y(0.08),
-    class: "gridline", "stroke-dasharray": "3 3" }));
-  const lastY = Y(iterations.at(-1).distance);
-  const threshY = Y(0.08);
-  svg.appendChild(text({ x: W - m.r + 4,
-    y: threshY + (Math.abs(threshY - lastY) < 14 ? 14 : 3), class: "tick" }, "0.08"));
-  svg.appendChild(svgEl("line", { x1: m.l, x2: W - m.r, y1: Y(0), y2: Y(0), class: "axisline" }));
+  [0, top / 2, top].forEach(v => {
+    svg.appendChild(svgEl("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), class: "gridline" }));
+    svg.appendChild(text({ x: m.l - 4, y: Y(v) + 3, class: "tick", "text-anchor": "end" },
+      fmt(v, 2)));
+  });
+  svg.appendChild(svgEl("line", { x1: m.l, x2: W - m.r, y1: Y(.08), y2: Y(.08),
+    class: "axisline", "stroke-dasharray": "3 2" }));
+  svg.appendChild(text({ x: W - m.r + 3, y: Y(.08) + 3, class: "tick" }, "0.08"));
   svg.appendChild(svgEl("path", {
     d: iterations.map((it, k) => `${k ? "L" : "M"}${X(it.index)},${Y(it.distance)}`).join(""),
     class: "series", stroke: "var(--series-1)" }));
-
-  iterations.forEach(it => {
-    svg.appendChild(svgEl("circle", { cx: X(it.index), cy: Y(it.distance), r: 4.5,
-      fill: "var(--series-1)", class: "marker" }));
-    const hit = svgEl("circle", { cx: X(it.index), cy: Y(it.distance), r: 13, fill: "transparent" });
-    hit.onmousemove = e => showTip(e, `iteration ${it.index}<br><b>${fmt(it.distance, 3)}</b> distance`);
-    hit.onmouseleave = hideTip;
-    svg.appendChild(hit);
-  });
-  const l = iterations.at(-1);
-  svg.appendChild(text({ x: X(l.index) - 2, y: lastY - 11, class: "val",
-    "text-anchor": "end" }, fmt(l.distance, 3)));
+  iterations.forEach(it => svg.appendChild(svgEl("rect", {
+    x: X(it.index) - 2.5, y: Y(it.distance) - 2.5, width: 5, height: 5,
+    fill: "var(--series-1)" })));
 }
 
-/* ---------- band gaps: diverging around zero ---------- */
-function drawGaps(gaps) {
-  const svg = $("gapChart"), W = reset(svg), H = 148;
-  const names = { low: "Low 80–250", mid: "Mid 400–1200", high: "High 2k–8k" };
+/* ---------------- band gaps ---------------- */
+function drawGaps(gaps, moves) {
+  const names = { low: "Low 80–250 Hz", mid: "Mid 400–1200 Hz", high: "High 2k–8k Hz" };
+  const knobOf = { low: "bass", mid: "mid", high: "treb" };
   const keys = Object.keys(names).filter(k => k in gaps);
-  if (!keys.length) {
-    svg.appendChild(text({ x: 0, y: 24, class: "lbl" }, "no comparison yet"));
-    return;
-  }
-  const labelW = 108, m = { t: 8, r: 58, b: 22 };
-  const span = Math.max(0.12, ...keys.map(k => Math.abs(gaps[k]))) * 1.2;
-  const plotW = W - labelW - m.r, mid = labelW + plotW / 2;
+  const svg = $("gapChart"), W = reset(svg), H = 84;
+  if (!keys.length) return emptyRow("gaps", 5, "No comparison yet.");
+
+  const tb = body("gaps"); tb.innerHTML = "";
+  const byControl = Object.fromEntries((moves || []).map(m => [m.control, m.delta]));
+  keys.forEach(k => {
+    const g = gaps[k], d = byControl[knobOf[k]];
+    const state = Math.abs(g) < .03 ? "matched" : g > 0 ? "excess" : "deficit";
+    const pct = Math.min(100, Math.abs(g) / .2 * 100);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${names[k]}</td><td class="num">${g > 0 ? "+" : ""}${fmt(g, 3)}</td>` +
+      `<td>${state}</td>` +
+      `<td><div class="pb"><i style="width:${pct}%;background:${g > 0 ? "var(--pos)" : "var(--neg)"}"></i></div></td>` +
+      `<td class="num">${d === undefined ? "—" : (d > 0 ? "+" : "") + fmt(d, 1)}</td>`;
+    tb.appendChild(tr);
+  });
+
+  const m = { t: 6, r: 44, b: 14, l: 4 };
+  const span = Math.max(.12, ...keys.map(k => Math.abs(gaps[k]))) * 1.2;
+  const plotW = W - m.r - m.l, mid = m.l + plotW / 2;
   const row = (H - m.t - m.b) / keys.length;
-
   svg.appendChild(svgEl("line", { x1: mid, x2: mid, y1: m.t, y2: H - m.b, class: "axisline" }));
-  svg.appendChild(text({ x: mid, y: H - 6, class: "tick", "text-anchor": "middle" },
-    "matches target"));
-
+  svg.appendChild(text({ x: mid, y: H - 3, class: "tick", "text-anchor": "middle" }, "0"));
   keys.forEach((k, i) => {
-    const g = gaps[k], y = m.t + i * row + row / 2;
-    const w = Math.abs(g) / span * (plotW / 2), warm = g > 0;
-    const x = warm ? mid + 1 : mid - w - 1;   /* 2px surface gap at the axis */
-    svg.appendChild(text({ x: labelW - 12, y: y + 4, class: "lbl", "text-anchor": "end" },
-      names[k]));
-    if (w > 0.5) {
-      const bar = svgEl("rect", { x, y: y - 8, width: Math.max(w, 2), height: 16, rx: 4,
-        fill: warm ? "var(--pos)" : "var(--neg)" });
-      bar.onmousemove = e => showTip(e, `${names[k]}<br><b>${g > 0 ? "+" : ""}${fmt(g, 3)}</b> ` +
-        (warm ? "more than the target" : "less than the target"));
-      bar.onmouseleave = hideTip;
-      svg.appendChild(bar);
-    }
-    svg.appendChild(text({ x: warm ? x + Math.max(w, 2) + 7 : x - 7, y: y + 4,
-      class: "val", "text-anchor": warm ? "start" : "end" },
-      (g > 0 ? "+" : "") + fmt(g, 3)));
+    const g = gaps[k], y = m.t + i * row + row / 2, w = Math.abs(g) / span * (plotW / 2);
+    const warm = g > 0;
+    if (w > .5) svg.appendChild(svgEl("rect", {
+      x: warm ? mid + 1 : mid - w - 1, y: y - 5, width: Math.max(w, 1.5), height: 10,
+      fill: warm ? "var(--pos)" : "var(--neg)" }));
+    svg.appendChild(text({ x: warm ? mid + w + 5 : mid - w - 5, y: y + 4, class: "val",
+      "text-anchor": warm ? "start" : "end" }, (g > 0 ? "+" : "") + fmt(g, 3)));
   });
 }
 
-/* ---------- spectrum: two series, legend + direct labels ---------- */
+/* ---------------- spectrum ---------------- */
 function drawSpectrum(spec) {
-  const svg = $("specChart"), W = reset(svg), H = 212;
-  const body = $("specTable").querySelector("tbody"); body.innerHTML = "";
+  const svg = $("specChart"), W = reset(svg), H = 172;
   const { hz = [], target = [], current = [] } = spec || {};
-  if (!hz.length) {
-    svg.appendChild(text({ x: 0, y: 24, class: "lbl" }, "no spectrum captured yet"));
-    return;
-  }
-  const m = { t: 12, r: 58, b: 26, l: 34 }, floor = -48;
+  if (!hz.length) { svg.appendChild(text({ x: 2, y: 20, class: "lbl" },
+    "no spectrum captured yet")); return }
+  const m = { t: 8, r: 40, b: 20, l: 28 }, floor = -48;
   const lo = Math.log10(hz[0]), hi = Math.log10(hz.at(-1));
   const X = f => m.l + (W - m.l - m.r) * (Math.log10(f) - lo) / (hi - lo);
   const Y = v => m.t + (H - m.t - m.b) * (1 - (Math.max(v, floor) - floor) / -floor);
 
   [0, -12, -24, -36].forEach(db => {
     svg.appendChild(svgEl("line", { x1: m.l, x2: W - m.r, y1: Y(db), y2: Y(db), class: "gridline" }));
-    svg.appendChild(text({ x: m.l - 6, y: Y(db) + 3, class: "tick", "text-anchor": "end" }, db));
+    svg.appendChild(text({ x: m.l - 4, y: Y(db) + 3, class: "tick", "text-anchor": "end" }, db));
   });
   [100, 250, 500, 1000, 2000, 4000, 8000].filter(f => f >= hz[0] && f <= hz.at(-1))
-    .forEach(f => svg.appendChild(text({ x: X(f), y: H - 8, class: "tick",
-      "text-anchor": "middle" }, f >= 1000 ? f / 1000 + "k" : f)));
+    .forEach(f => {
+      svg.appendChild(svgEl("line", { x1: X(f), x2: X(f), y1: m.t, y2: H - m.b, class: "gridline" }));
+      svg.appendChild(text({ x: X(f), y: H - 6, class: "tick", "text-anchor": "middle" },
+        f >= 1000 ? f / 1000 + "k" : f));
+    });
+  svg.appendChild(svgEl("line", { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b,
+    class: "axisline" }));
 
   const path = v => v.map((y, i) => `${i ? "L" : "M"}${X(hz[i])},${Y(y)}`).join("");
-  if (target.length) svg.appendChild(svgEl("path",
-    { d: path(target), class: "series", stroke: "var(--series-1)" }));
-  if (current.length) svg.appendChild(svgEl("path",
-    { d: path(current), class: "series", stroke: "var(--series-2)" }));
-  // Both series end at the same place once they converge, which is exactly
-  // when the labels would sit on top of each other. Push them apart.
+  if (target.length) svg.appendChild(svgEl("path", { d: path(target), class: "series",
+    stroke: "var(--series-1)" }));
+  if (current.length) svg.appendChild(svgEl("path", { d: path(current), class: "series",
+    stroke: "var(--series-2)" }));
   if (target.length && current.length) {
     let ty = Y(target.at(-1)), cy = Y(current.at(-1));
-    if (Math.abs(ty - cy) < 13) {
-      const centre = (ty + cy) / 2;
-      ty = centre - 7; cy = centre + 7;
-    }
-    svg.appendChild(text({ x: W - m.r + 7, y: ty + 3, class: "val",
+    if (Math.abs(ty - cy) < 12) { const c = (ty + cy) / 2; ty = c - 6; cy = c + 6 }
+    svg.appendChild(text({ x: W - m.r + 4, y: ty + 3, class: "val",
       fill: "var(--series-1)" }, "target"));
-    svg.appendChild(text({ x: W - m.r + 7, y: cy + 3, class: "val",
+    svg.appendChild(text({ x: W - m.r + 4, y: cy + 3, class: "val",
       fill: "var(--series-2)" }, "amp"));
   } else if (target.length) {
-    svg.appendChild(text({ x: W - m.r + 7, y: Y(target.at(-1)) + 3, class: "val",
+    svg.appendChild(text({ x: W - m.r + 4, y: Y(target.at(-1)) + 3, class: "val",
       fill: "var(--series-1)" }, "target"));
-  } else if (current.length) {
-    svg.appendChild(text({ x: W - m.r + 7, y: Y(current.at(-1)) + 3, class: "val",
-      fill: "var(--series-2)" }, "amp"));
   }
-
-  const cross = svgEl("line", { y1: m.t, y2: H - m.b, class: "axisline", opacity: 0 });
-  svg.appendChild(cross);
-  const hit = svgEl("rect", { x: m.l, y: m.t, width: Math.max(1, W - m.l - m.r),
-    height: H - m.t - m.b, fill: "transparent" });
-  hit.onmousemove = e => {
-    const px = e.clientX - svg.getBoundingClientRect().left;
-    let best = 0, bd = Infinity;
-    hz.forEach((f, i) => { const d = Math.abs(X(f) - px); if (d < bd) { bd = d; best = i } });
-    cross.setAttribute("x1", X(hz[best])); cross.setAttribute("x2", X(hz[best]));
-    cross.setAttribute("opacity", .6);
-    showTip(e, `${Math.round(hz[best])} Hz` +
-      (target[best] !== undefined ? `<br><span class="swatch" style="background:var(--series-1)"></span>target <b>${fmt(target[best], 1)}</b> dB` : "") +
-      (current[best] !== undefined ? `<br><span class="swatch" style="background:var(--series-2)"></span>amp <b>${fmt(current[best], 1)}</b> dB` : ""));
-  };
-  hit.onmouseleave = () => { hideTip(); cross.setAttribute("opacity", 0) };
-  svg.appendChild(hit);
-
-  hz.forEach((f, i) => {
-    const tr = document.createElement("tr");
-    const d = (current[i] !== undefined && target[i] !== undefined)
-      ? fmt(current[i] - target[i], 1) : "—";
-    tr.innerHTML = `<td>${Math.round(f)}</td><td>${target[i] !== undefined ? fmt(target[i], 1) : "—"}</td>` +
-      `<td>${current[i] !== undefined ? fmt(current[i], 1) : "—"}</td><td>${d}</td>`;
-    body.appendChild(tr);
-  });
 }
 
-/* ---------- knobs ---------- */
+/* ---------------- knobs & moves ---------------- */
 function drawKnobs(knobs) {
-  const svg = $("knobChart"), W = reset(svg), H = 150;
   const order = ["gain", "treb", "mid", "bass", "volume"];
   const names = { gain: "Gain", treb: "Treble", mid: "Middle", bass: "Bass", volume: "Volume" };
   const keys = order.filter(k => k in knobs);
-  if (!keys.length) {
-    svg.appendChild(text({ x: 0, y: 24, class: "lbl" }, "no preset loaded yet"));
-    return;
-  }
-  const labelW = 62, m = { t: 8, r: 44, b: 18 };
-  const plotW = W - labelW - m.r, row = (H - m.t - m.b) / keys.length;
-  [0, 5, 10].forEach(v => {
-    const x = labelW + plotW * v / 10;
-    svg.appendChild(svgEl("line", { x1: x, x2: x, y1: m.t, y2: H - m.b, class: "gridline" }));
-    svg.appendChild(text({ x, y: H - 5, class: "tick", "text-anchor": "middle" }, v));
-  });
-  keys.forEach((k, i) => {
-    const v = knobs[k], y = m.t + i * row + row / 2;
-    svg.appendChild(text({ x: labelW - 12, y: y + 4, class: "lbl", "text-anchor": "end" }, names[k]));
-    const w = Math.max(2, plotW * Math.max(0, Math.min(10, v)) / 10);
-    const bar = svgEl("rect", { x: labelW, y: y - 7, width: w, height: 14, rx: 4,
-      fill: "var(--series-1)" });
-    bar.onmousemove = e => showTip(e, `${names[k]}<br><b>${fmt(v, 1)}</b> / 10`);
-    bar.onmouseleave = hideTip;
-    svg.appendChild(bar);
-    svg.appendChild(text({ x: labelW + w + 7, y: y + 4, class: "val" }, fmt(v, 1)));
+  if (!keys.length) return emptyRow("knobs", 3, "No preset loaded.");
+  const tb = body("knobs"); tb.innerHTML = "";
+  keys.forEach(k => {
+    const v = Math.max(0, Math.min(10, knobs[k]));
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${names[k]}</td><td class="num">${fmt(v, 1)}</td>` +
+      `<td><div class="pb"><i style="width:${v * 10}%;background:var(--series-1)"></i></div></td>`;
+    tb.appendChild(tr);
   });
 }
 
+function drawMoves(moves, converged) {
+  if (!moves || !moves.length) return emptyRow("moves", 3, converged
+    ? "Converged — further automatic moves would chase noise." : "Nothing suggested.");
+  const tb = body("moves"); tb.innerHTML = "";
+  moves.forEach(m => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${esc(m.control)}</td>` +
+      `<td class="num">${m.delta > 0 ? "+" : ""}${fmt(m.delta, 1)}</td>` +
+      `<td class="wide">${esc(m.why)}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+/* ---------------- update ---------------- */
 let last = null;
 function draw(s) {
   last = s;
-  $("subtitle").textContent = [s.target_name && `target: ${s.target_name}`,
-    s.preset_name && `preset: ${s.preset_name}`, s.amp_label]
-    .filter(Boolean).join("  ·  ") || "waiting for a run";
-  $("status").textContent = (s.active_stage ? s.active_stage + "  ·  " : "") + s.status +
-    (s.iterations.length ? `  ·  iter ${s.iterations.length}` : "");
-
-  drawChain(s.stages);
-  drawBoard(s.chain);
+  $("conn").textContent = "";
+  drawStages(s.stages);
+  drawChain(s.chain);
 
   $("distance").textContent = s.distance === null ? "—" : fmt(s.distance, 3);
-  const badge = $("badge");
-  badge.textContent = s.converged ? "converged" : s.distance === null ? "" : "converging";
-  badge.className = "badge " + (s.converged ? "good" : s.distance === null ? "" : "working");
+  $("verdict").textContent = s.distance === null ? "" : (s.converged ? "(converged)" : "");
+  $("verdict").style.color = s.converged ? "var(--bar)" : "";
+  $("itercount").textContent = s.iterations.length;
+  $("tname").textContent = s.target_name || "—";
+  $("pname").textContent = s.preset_name || "—";
 
-  const its = s.iterations, trend = $("trend");
+  const its = s.iterations;
   if (its.length >= 2) {
     const d = its.at(-1).distance - its.at(-2).distance;
-    trend.textContent = d < 0 ? `${fmt(d, 3)} closer` : `+${fmt(d, 3)} further`;
-    trend.style.color = d < 0 ? "var(--good)" : "var(--pos)";
-  } else trend.textContent = "";
+    $("trend").textContent = (d < 0 ? "" : "+") + fmt(d, 3) + (d < 0 ? " closer" : " further");
+    $("trend").style.color = d < 0 ? "var(--bar)" : "var(--pos)";
+  } else { $("trend").textContent = "—"; $("trend").style.color = "" }
 
   drawTrend(its);
-  drawGaps(s.band_gaps || {});
+  drawGaps(s.band_gaps || {}, s.moves);
   drawSpectrum(s.spectrum);
   drawKnobs(s.knobs || {});
-
-  const moves = $("moves"); moves.innerHTML = "";
-  if (!s.moves || !s.moves.length) {
-    moves.innerHTML = `<li class="empty">${s.converged
-      ? "Close enough — further automatic moves would be chasing noise."
-      : "Nothing suggested yet."}</li>`;
-  } else s.moves.forEach(mv => {
-    const li = document.createElement("li");
-    li.innerHTML = `<span class="knobname">${mv.control}</span>` +
-      `<span class="delta" style="color:${mv.delta > 0 ? "var(--pos)" : "var(--neg)"}">` +
-      `${mv.delta > 0 ? "+" : ""}${fmt(mv.delta, 1)}</span><span class="why">${mv.why}</span>`;
-    moves.appendChild(li);
-  });
+  drawMoves(s.moves, s.converged);
 
   const log = $("log");
   const stuck = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
   log.textContent = (s.log || []).join("\n");
   if (stuck) log.scrollTop = log.scrollHeight;
+
+  $("sbStatus").textContent = s.status;
+  $("sbStage").textContent = s.active_stage || "—";
+  $("sbIter").textContent = "iteration " + s.iterations.length;
+  $("sbAmp").textContent = s.amp_label || "—";
 }
 
 const es = new EventSource("/events");
 es.onmessage = e => draw(JSON.parse(e.data));
-es.onerror = () => { $("status").textContent = "disconnected" };
+es.onerror = () => { $("sbStatus").textContent = "disconnected";
+  $("conn").textContent = "disconnected" };
 addEventListener("resize", () => last && draw(last));
 </script>

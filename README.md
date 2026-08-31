@@ -198,30 +198,32 @@ A live view of a run, served locally:
 ./scripts/py scripts/workbench_demo.py --target <guitar-stem.wav>
 ```
 
-It opens a black bench at `127.0.0.1:8765` showing what is happening as it
-happens, not after:
+It opens at `127.0.0.1:8765` and shows what is happening as it happens, not
+after. Deliberately plain: system fonts, square corners, dense tables and
+sunken progress bars, in the idiom of a utility rather than a dashboard.
 
-- **Pipeline** — every stage as a lit strip: what is running now, what each
-  step took, and which one failed if one did.
-- **Signal chain** — the amp's fixed path drawn as the row of boxes a player
-  actually thinks in. Guitar, stomp, mod, amp, delay, reverb, speaker; lit
-  units carry their model name and live knob pointers, empty slots are dashed
-  and dark.
-- **Distance to target** — one number, trending down across iterations.
-- **Where the tone is off** — the three bands as a diverging bar around zero:
-  right means the amp has too much, left too little.
-- **Spectrum** — the target with the amp's own laid over it, so convergence is
-  visible rather than asserted.
-- **Next move** — the knob change, and the measurement that justifies it.
+- **Pipeline** — one row per stage: status, a progress bar, how long it took,
+  and the detail. A failed stage turns red and says why, in the row.
+- **Signal chain** — the amp's fixed path as the row of units a player thinks
+  in. Guitar, stomp, mod, amp, delay, reverb, speaker; lit units show their
+  model, mode and live control values, empty slots read "slot empty".
+- **Convergence** — distance, whether the last iteration got closer, and the
+  trend.
+- **Band balance** — each band's gap as a number, a state, and a deviation
+  bar, next to the knob move it implies.
+- **Spectrum** — the target with the amp's own laid over it, so convergence
+  is visible rather than asserted.
+- **Next move** — the change and the measurement that justifies it.
 
 Updates arrive over server-sent events, so an iteration appears the moment it
-is recorded. No framework, no CDN, no Electron: a local page reading local
-state. The demo stands in for the amp by applying each suggested knob move as
-a real EQ change through ffmpeg — the loop, the measurements and the
-convergence are all genuine, only the amp is simulated.
+is recorded. No framework, no CDN, no build step: a local page reading local
+state, which is also why wrapping it in a desktop shell later is only a matter
+of pointing one at the URL. The demo stands in for the amp by applying each
+suggested knob move as a real EQ change through ffmpeg — the loop, the
+measurements and the convergence are all genuine, only the amp is simulated.
 
-The palette is the validated default from the data-viz method, run through its
-own checker in both modes rather than eyeballed.
+Chart colours are the validated default from the data-viz method, run through
+its own checker rather than eyeballed.
 
 ## How the amp talks
 
