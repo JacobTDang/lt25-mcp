@@ -1,0 +1,12 @@
+syntax = "proto2";
+option csharp_namespace = "LtAmpDotNet.Lib.Models.Protobuf";
+
+/*
+ * Switches the amp to the specified preset number
+ *
+ * response: CurrentLoadedPresetIndexStatus message 
+ */
+message LoadPreset {
+    // Preset bank number currently loaded
+    required int32 presetIndex = 1;
+}

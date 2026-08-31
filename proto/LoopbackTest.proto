@@ -1,0 +1,6 @@
+syntax = "proto2";
+option csharp_namespace = "LtAmpDotNet.Lib.Models.Protobuf";
+
+message LoopbackTest {
+    required string data = 1;
+}

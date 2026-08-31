@@ -7,3 +7,6 @@ __pycache__/
 
 # Amp preset backups may contain personal tone libraries
 backups/
+
+# Generated protobuf bindings - run ./scripts/gen_proto.sh
+src/lt25_mcp/_generated/

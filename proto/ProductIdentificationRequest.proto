@@ -1,0 +1,7 @@
+syntax = "proto2";
+option csharp_namespace = "LtAmpDotNet.Lib.Models.Protobuf";
+
+message ProductIdentificationRequest {
+    // Always true on requests
+    required bool request = 1;
+}

@@ -1,0 +1,12 @@
+syntax = "proto2";
+option csharp_namespace = "LtAmpDotNet.Lib.Models.Protobuf";
+
+/*
+ * Result of a SaveCurrentPreset, SaveCurrentPresetTo, or SavePresetAs message. Also sent when the preset is saved on the amp.
+ */
+message PresetSavedStatus {
+    // Name of the preset saved
+    required string name = 1;
+    // Preset bank of the saved preset
+    required int32 slot = 2;
+}

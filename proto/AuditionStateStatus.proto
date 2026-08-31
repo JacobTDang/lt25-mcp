@@ -1,0 +1,10 @@
+syntax = "proto2";
+option csharp_namespace = "LtAmpDotNet.Lib.Models.Protobuf";
+
+/*
+ * The current audition state of the amp
+ */
+message AuditionStateStatus {
+    // True if the amp is in audition mode
+    required bool isAuditioning = 1;
+}

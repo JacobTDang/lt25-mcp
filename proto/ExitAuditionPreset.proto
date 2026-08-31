@@ -1,0 +1,12 @@
+syntax = "proto2";
+option csharp_namespace = "LtAmpDotNet.Lib.Models.Protobuf";
+
+/*
+ * Leaves audition mode
+ *
+ * response: ExitAuditionPresetStatus message
+ */
+message ExitAuditionPreset {
+    // True to exit audition mode
+    required bool exit = 1;
+}

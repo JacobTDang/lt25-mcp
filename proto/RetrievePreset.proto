@@ -1,0 +1,12 @@
+syntax = "proto2";
+option csharp_namespace = "LtAmpDotNet.Lib.Models.Protobuf";
+
+/*
+ * Queries the amp on the stored presets
+ *
+ * response: PresetJsonMessage
+ */
+message RetrievePreset {
+    // Preset bank to retrieve
+    required int32 slot = 1;
+}

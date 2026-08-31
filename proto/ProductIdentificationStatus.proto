@@ -1,0 +1,6 @@
+syntax = "proto2";
+option csharp_namespace = "LtAmpDotNet.Lib.Models.Protobuf";
+
+message ProductIdentificationStatus {
+    required string id = 1;
+}

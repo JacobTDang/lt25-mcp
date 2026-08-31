@@ -1,0 +1,7 @@
+syntax = "proto2";
+option csharp_namespace = "LtAmpDotNet.Lib.Models.Protobuf";
+
+// Heartbeat message sent every second to keep the connection alive
+message Heartbeat {
+    required bool dummyField = 1;
+}

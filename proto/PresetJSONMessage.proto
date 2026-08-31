@@ -1,0 +1,12 @@
+syntax = "proto2";
+option csharp_namespace = "LtAmpDotNet.Lib.Models.Protobuf";
+
+/*
+ * Saved preset data
+ */
+message PresetJSONMessage {
+    // JSON data conatining preset data for requested preset bank
+    required string data = 1;
+    // Preset bank this preset is stored in
+    required int32 slotIndex = 2;
+}

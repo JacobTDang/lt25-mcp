@@ -3,10 +3,15 @@ name = "lt25-mcp"
 version = "0.1.0"
 description = "MCP server for the Fender Mustang LT25 guitar amplifier"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "protobuf>=7.36.0",
+]
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = [
+    "grpcio-tools>=1.83.1",
+    "pytest>=8.0",
+]
 
 [build-system]
 requires = ["hatchling"]

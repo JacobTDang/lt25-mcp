@@ -1,0 +1,10 @@
+syntax = "proto2";
+option csharp_namespace = "LtAmpDotNet.Lib.Models.Protobuf";
+
+/*
+ * Sets the gain for the USB audio device
+ */
+message UsbGainSet {
+    // gain in dB
+    required float valueDB = 1;
+}

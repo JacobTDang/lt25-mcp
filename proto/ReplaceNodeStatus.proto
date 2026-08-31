@@ -1,0 +1,12 @@
+syntax = "proto2";
+option csharp_namespace = "LtAmpDotNet.Lib.Models.Protobuf";
+
+/*
+ * Status of a ReplaceNode message; also sent when the node is changed at the amp
+ */
+message ReplaceNodeStatus {
+    // node replaced (amp, stomp, mod, delay, or reverb)
+    required string nodeIdReplaced = 1;
+    // FenderId of node set
+    required string fenderIdReplaced = 2;
+}

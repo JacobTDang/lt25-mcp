@@ -1,0 +1,12 @@
+syntax = "proto2";
+option csharp_namespace = "LtAmpDotNet.Lib.Models.Protobuf";
+
+/*
+ * Assigns preset banks to the footswitch
+ *
+ * response: QASlotsStatus message
+ */
+message QASlotsSet {
+    // Preset banks to assign to the footswitch
+    repeated uint32 slots = 1;
+}
