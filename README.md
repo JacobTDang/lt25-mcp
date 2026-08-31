@@ -299,8 +299,32 @@ Confidence in the amp model: 34%
 `describe_settings()` prints knob positions on the amp's own 0-10 scale, so
 even a wrong pick beats starting from the middle of every knob.
 
-Only the clean path has been calibrated against real audio so far; the
-high-gain thresholds are still set from synthesized signals.
+### Calibrating the thresholds
+
+Arguing about whether 9.5 dB is the right clean boundary is not worth doing in
+prose. Label some clips and count:
+
+```bash
+./scripts/py scripts/calibrate.py add riff.wav --label high_gain
+./scripts/py scripts/calibrate.py evaluate      # score the current thresholds
+./scripts/py scripts/calibrate.py sweep         # search for better ones
+```
+
+`sweep` searches the threshold pair against the labelled corpus, reports
+accuracy and a confusion matrix, and prints what to change — it never edits
+`mapping.py`, because a threshold worth adopting is worth reading first. It
+warns when a label has fewer than three clips, since a sweep over four samples
+is fitting noise.
+
+Only the clean path has real evidence so far: one clip, correctly classified.
+The crunch and high-gain branches have never seen real audio.
+
+The amp's own factory presets were checked as a possible source of labels and
+rejected: `DUBS_Plexi87` appears at gain 4.1 and at 10.0 across three presets,
+so a preset's gain reflects the tone Fender wanted there, not the model's
+character. The groupings survive that check — the clean models really are used
+clean, and JCM800 really is used flat out — but per-model gain defaults would
+have been inventing a pattern the data does not contain.
 
 ## Development
 
