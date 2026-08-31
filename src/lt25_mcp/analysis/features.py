@@ -50,8 +50,9 @@ class ToneFeatures:
     """Mean onset envelope. Pick attack sharpness."""
 
     decay_time_s: float
-    """Time for the signal to fall 60 dB from a peak. Long values imply
-    reverb or delay in the source."""
+    """Time for the signal to fall 30 dB from its loudest point. Long values
+    imply reverb, delay or long sustain in the source. Note this conflates
+    note decay with room decay; it is a proxy, not an RT60."""
 
     estimated_tempo_bpm: float
     """Detected tempo, for setting delay time in sync."""
@@ -161,18 +162,39 @@ def extract(path: Path) -> ToneFeatures:
     )
 
 
+DECAY_FRAME = 2048
+DECAY_HOP = 512
+DECAY_DROP = 10 ** (-30 / 20)  # -30 dB
+
+
 def _decay_time(y, sr: int) -> float:
-    """Seconds from the loudest moment until the signal falls 60 dB."""
+    """Seconds from the loudest moment until the signal falls 30 dB.
+
+    Measured on a short-time RMS envelope rather than raw sample magnitude. A
+    steady tone crosses zero twice per cycle, so raw magnitude dips below any
+    floor almost immediately and would report a sustained note as instantly
+    decayed.
+    """
+    import librosa
     import numpy as np
 
-    envelope = np.abs(y)
+    envelope = librosa.feature.rms(
+        y=y, frame_length=DECAY_FRAME, hop_length=DECAY_HOP
+    )[0]
+    if envelope.size == 0:
+        return 0.0
     peak_index = int(np.argmax(envelope))
     peak = float(envelope[peak_index])
     if peak == 0.0:
         return 0.0
-    floor = peak / 1000.0  # -60 dB
-    tail = envelope[peak_index:]
-    below = np.nonzero(tail < floor)[0]
+    # -30 dB rather than -60. Real recordings hit their noise floor long
+    # before -60 dB, so a T60 measurement saturates at "never decays" for
+    # almost every clip and stops discriminating.
+    floor = peak * DECAY_DROP
+    below = np.nonzero(envelope[peak_index:] < floor)[0]
     if below.size == 0:
-        return float(len(tail) / sr)
-    return float(below[0] / sr)
+        # The signal never decays within the clip. Reporting time-from-peak
+        # here would depend on where the peak happened to land, so report the
+        # whole clip: the true decay is at least this long.
+        return float(len(y) / sr)
+    return float(librosa.frames_to_time(below[0], sr=sr, hop_length=DECAY_HOP))

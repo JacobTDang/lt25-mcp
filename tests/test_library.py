@@ -119,3 +119,21 @@ class TestLatestBackup:
         second = backup_all(FakeSession(), tmp_path)
         assert first != second
         assert latest_backup(tmp_path) == second
+
+
+class TestLoadBackup:
+    def test_reads_every_slot(self, tmp_path):
+        from lt25_mcp.library import load_backup
+
+        out = backup_all(FakeSession(), tmp_path)
+        loaded = load_backup(out)
+        assert sorted(loaded) == list(range(1, 61))
+        assert loaded[5]["info"]["displayName"].startswith("SLOT 05")
+
+    def test_incomplete_backup_raises(self, tmp_path):
+        from lt25_mcp.library import load_backup
+
+        out = backup_all(FakeSession(), tmp_path)
+        (out / "slot-07.json").unlink()
+        with pytest.raises(SlotError, match="not a complete"):
+            load_backup(out)

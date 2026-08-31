@@ -40,8 +40,10 @@ def features(**overrides) -> ToneFeatures:
     return ToneFeatures(**base)
 
 
-CLEAN = dict(crest_factor_db=17.0, harmonic_ratio=0.9, spectral_centroid_hz=1400.0)
-HIGH_GAIN = dict(crest_factor_db=6.0, harmonic_ratio=0.45, spectral_centroid_hz=3200.0)
+# A pure sine measures 3.0 dB crest and a square wave 0.0 dB, so these sit
+# either side of the thresholds in mapping.py.
+CLEAN = dict(crest_factor_db=13.0, harmonic_ratio=0.9, spectral_centroid_hz=1400.0)
+HIGH_GAIN = dict(crest_factor_db=2.5, harmonic_ratio=0.45, spectral_centroid_hz=3200.0)
 
 
 class TestGainCharacter:
@@ -56,7 +58,7 @@ class TestGainCharacter:
 
     def test_boundaries_are_stable(self):
         """A tone right at a threshold must land in exactly one bucket."""
-        for crest in (7.9, 8.0, 8.1, 13.9, 14.0, 14.1):
+        for crest in (4.4, 4.5, 4.6, 9.4, 9.5, 9.6):
             assert gain_character(features(crest_factor_db=crest)) in {
                 "clean",
                 "crunch",
@@ -108,7 +110,7 @@ class TestReverbChoice:
         }
 
     def test_short_tail_gets_a_room(self):
-        assert choose_reverb(features(decay_time_s=0.9)) == "DUBS_SmallRoomReverb"
+        assert choose_reverb(features(decay_time_s=1.0)) == "DUBS_SmallRoomReverb"
 
 
 class TestBuildPreset:

@@ -18,9 +18,14 @@ from lt25_mcp.dsp_catalog import PASSTHRU
 from lt25_mcp.preset import DISPLAY_NAME_LENGTH, Preset, PresetError
 
 # Crest factor splits saturation levels. A clean guitar keeps its transients
-# and so stays dynamic; distortion compresses the signal towards a square wave.
-CLEAN_CREST_DB = 14.0
-HIGH_GAIN_CREST_DB = 8.0
+# and so stays dynamic; distortion compresses the signal towards a square
+# wave. For reference, a pure sine measures 3.0 dB and a square wave 0.0 dB.
+#
+# THESE THRESHOLDS ARE NOT CALIBRATED AGAINST REAL RECORDINGS. They were set
+# from synthesized signals and sanity-checked by ear on nothing at all yet.
+# Expect to move them once real clips have been through the pipeline.
+CLEAN_CREST_DB = 9.5
+HIGH_GAIN_CREST_DB = 4.5
 
 # Above this share of harmonic energy the signal is holding together as pitched
 # notes rather than dissolving into noise.
@@ -34,8 +39,8 @@ BRIGHT_CENTROID_HZ = 2200.0
 DARK_CENTROID_HZ = 1200.0
 
 # Below this the source is effectively dry.
-DRY_DECAY_S = 0.35
-ROOM_DECAY_S = 2.0
+DRY_DECAY_S = 0.6
+ROOM_DECAY_S = 1.6
 
 
 class MappingError(Exception):

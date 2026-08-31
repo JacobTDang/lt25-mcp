@@ -100,3 +100,14 @@ def latest_backup(root: Path) -> Path | None:
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.name)
+
+
+def load_backup(backup: Path) -> dict[int, dict]:
+    """Read a backup directory into {slot: preset}."""
+    backup = Path(backup)
+    if not is_complete(backup):
+        raise SlotError(f"{backup} is not a complete {SLOT_MAX}-slot backup")
+    return {
+        slot: json.loads((backup / f"slot-{slot:02d}.json").read_text())
+        for slot in range(SLOT_MIN, SLOT_MAX + 1)
+    }
