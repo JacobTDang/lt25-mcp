@@ -71,11 +71,19 @@ class TestCaptureArgv:
 class TestRecord:
     def test_zero_duration_raises(self, tmp_path):
         with pytest.raises(CaptureError, match="positive"):
-            record(tmp_path / "a.wav", seconds=0, device_index=2, runner=runner_for("", 0))
+            record(tmp_path / "a.wav", seconds=0, device_index=2,
+                   runner=runner_for("", 0), allow_short=True)
 
     def test_ffmpeg_failure_raises(self, tmp_path):
         with pytest.raises(CaptureError, match="capture failed"):
             record(tmp_path / "a.wav", device_index=2, runner=runner_for("boom", 1))
+
+    def test_the_default_take_length_is_long_enough(self):
+        from lt25_mcp.analysis.capture import MIN_TAKE_SECONDS
+        import inspect
+
+        default = inspect.signature(record).parameters["seconds"].default
+        assert default >= MIN_TAKE_SECONDS
 
     def test_success_returns_the_destination(self, tmp_path):
         dest = tmp_path / "nested" / "a.wav"
@@ -94,7 +102,7 @@ class TestCaptureDoesNotHang:
             raise sp.TimeoutExpired(cmd="ffmpeg", timeout=35)
 
         with pytest.raises(CaptureError, match="Microphone permission"):
-            record(tmp_path / "a.wav", seconds=20, device_index=2, runner=hangs)
+            record(tmp_path / "a.wav", seconds=40, device_index=2, runner=hangs)
 
     def test_the_error_says_what_to_do(self, tmp_path):
         import subprocess as sp
@@ -103,7 +111,8 @@ class TestCaptureDoesNotHang:
             raise sp.TimeoutExpired(cmd="ffmpeg", timeout=35)
 
         with pytest.raises(CaptureError) as exc:
-            record(tmp_path / "a.wav", seconds=5, device_index=2, runner=hangs)
+            record(tmp_path / "a.wav", seconds=5, device_index=2, runner=hangs,
+               allow_short=True)
         assert "System Settings" in str(exc.value)
 
     def test_injected_runners_stay_argv_only(self, tmp_path):
@@ -114,5 +123,32 @@ class TestCaptureDoesNotHang:
             seen.append(argv)
             return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
 
-        record(tmp_path / "a.wav", seconds=1, device_index=2, runner=plain)
+        record(tmp_path / "a.wav", seconds=1, device_index=2, runner=plain,
+               allow_short=True)
         assert seen and seen[0][0] == "ffmpeg"
+
+
+class TestTakeLength:
+    """A 20s take produced five spurious knob moves on real playing; a 30s take
+    produced none. See docs/measurements.md."""
+
+    def test_a_short_take_is_refused(self, tmp_path):
+        with pytest.raises(CaptureError, match="too short"):
+            record(tmp_path / "a.wav", seconds=20, device_index=2,
+                   runner=runner_for("", 0))
+
+    def test_the_refusal_explains_why(self, tmp_path):
+        with pytest.raises(CaptureError) as exc:
+            record(tmp_path / "a.wav", seconds=5, device_index=2,
+                   runner=runner_for("", 0))
+        assert "noise floor" in str(exc.value)
+
+    def test_a_device_check_may_opt_out(self, tmp_path):
+        record(tmp_path / "a.wav", seconds=2, device_index=2,
+               runner=runner_for("", 0), allow_short=True)
+
+    def test_a_long_enough_take_is_allowed(self, tmp_path):
+        from lt25_mcp.analysis.capture import MIN_TAKE_SECONDS
+
+        record(tmp_path / "a.wav", seconds=MIN_TAKE_SECONDS, device_index=2,
+               runner=runner_for("", 0))

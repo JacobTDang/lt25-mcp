@@ -19,6 +19,12 @@ from typing import Callable, Sequence
 AMP_DEVICE_HINT = "Mustang LT"
 SAMPLE_RATE = 44100
 
+# Shorter takes measure the performance more than the tone. See
+# docs/measurements.md - at 20s two takes of identical playing differ by
+# 0.24, well above the 0.08 convergence threshold; at 30s they differ by
+# 0.065, inside it.
+MIN_TAKE_SECONDS = 30.0
+
 Runner = Callable[[Sequence[str]], subprocess.CompletedProcess]
 
 
@@ -98,14 +104,23 @@ def capture_argv(device_index: int, seconds: float, dest: Path) -> list[str]:
 
 def record(
     dest: Path,
-    seconds: float = 20.0,
+    seconds: float = MIN_TAKE_SECONDS,
     *,
     device_index: int | None = None,
     runner: Runner | None = None,
+    allow_short: bool = False,
 ) -> Path:
     """Record the amp's output to `dest`."""
     if seconds <= 0:
         raise CaptureError(f"seconds must be positive, got {seconds}")
+    if not allow_short and seconds < MIN_TAKE_SECONDS:
+        raise CaptureError(
+            f"a {seconds:.0f}s take is too short to measure tone from. Two takes "
+            f"of the same playing differ by about 0.24 at 20s but only 0.065 at "
+            f"{MIN_TAKE_SECONDS:.0f}s, which is inside the noise floor - a short "
+            "take produces knob moves that are chasing the performance. Pass "
+            "allow_short=True only for a device check."
+        )
     # Injected runners stay argv-only; the timeout belongs to the real one.
     deadline = seconds + CAPTURE_GRACE_S
     run = runner or (lambda argv: _run(argv, timeout=deadline))

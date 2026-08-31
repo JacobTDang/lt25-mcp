@@ -68,7 +68,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", required=True, help="a name for this guitar")
     parser.add_argument("--takes", type=int, default=4)
-    parser.add_argument("--seconds", type=float, default=20.0)
+    parser.add_argument("--seconds", type=float, default=30.0,
+                        help="per take; below 30s the measurement is mostly playing")
     parser.add_argument("--base", type=Path, default=Path("tests/fixtures/clean.json"))
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--pickups", default="unknown")

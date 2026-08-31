@@ -624,10 +624,12 @@ def compare_to_target(target_path: str, current_path: str) -> dict[str, Any]:
 @server.tool(
     description=(
         "Record the player through the amp's USB audio output. Tell them what "
-        "to play and wait until they are ready before calling this."
+        "to play and wait until they are ready before calling this. Takes "
+        "shorter than 30s are refused: two takes of the same playing differ "
+        "by more than a knob move at 20s."
     )
 )
-def record_take(seconds: float = 20.0) -> dict[str, Any]:
+def record_take(seconds: float = 30.0) -> dict[str, Any]:
     import tempfile
 
     from lt25_mcp.analysis.capture import CaptureError, record

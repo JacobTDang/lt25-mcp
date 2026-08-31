@@ -224,3 +224,49 @@ class TestBacktracking:
         s.step({"bass": 5.0}, compare(features(), features(low_energy_ratio=0.28)))
         s.step({"bass": 9.0}, compare(features(), features(low_energy_ratio=0.70)))
         assert s.best.index == 1
+
+
+class TestNoiseFloor:
+    """Measured on a real amp: two takes of the same performance differ by
+    about 0.08 over 30s windows. Acting below that chases the playing."""
+
+    def test_a_gap_below_the_floor_is_not_significant(self):
+        from lt25_mcp.analysis.converge import PLAYING_NOISE_FLOOR
+
+        result = compare(features(), features(mid_energy_ratio=0.47))
+        assert result.distance < PLAYING_NOISE_FLOOR
+        assert not result.significant
+
+    def test_a_real_gap_is_significant(self):
+        assert compare(features(), features(low_energy_ratio=0.60)).significant
+
+    def test_describe_warns_when_below_the_floor(self):
+        text = compare(features(), features(mid_energy_ratio=0.47)).describe()
+        assert "noise floor" in text
+
+    def test_the_low_band_has_the_widest_deadband(self):
+        """It moved 99% across takes; the high band moved 55%."""
+        from lt25_mcp.analysis.converge import BAND_DEADBAND
+
+        assert BAND_DEADBAND["low"] > BAND_DEADBAND["high"]
+
+    def test_deadbands_exceed_the_measured_playing_noise(self):
+        from lt25_mcp.analysis.converge import BAND_DEADBAND
+
+        measured = {"low": 0.068, "mid": 0.095, "high": 0.065}
+        for band, noise in measured.items():
+            assert BAND_DEADBAND[band] >= noise
+
+    def test_stable_measurements_outweigh_noisy_ones(self):
+        from lt25_mcp.analysis.converge import WEIGHTS
+
+        assert WEIGHTS["centroid"] > WEIGHTS["low"]
+
+    def test_a_playing_sized_band_swing_no_longer_moves_a_knob(self):
+        """The low band swung 0.068 between takes; that must not suggest bass."""
+        result = compare(features(), features(low_energy_ratio=0.25 + 0.068))
+        assert not any(m.control == "bass" for m in result.moves)
+
+    def test_a_genuinely_large_gap_still_moves(self):
+        result = compare(features(), features(low_energy_ratio=0.60))
+        assert any(m.control == "bass" for m in result.moves)

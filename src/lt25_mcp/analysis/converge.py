@@ -20,20 +20,41 @@ from dataclasses import dataclass, field
 
 from lt25_mcp.analysis.features import ToneFeatures
 
-# How much each measurement counts towards the distance score. Band balance is
-# what a listener hears as "tone"; centroid is a summary of the same thing and
-# is weighted lower to avoid counting it twice.
-WEIGHTS = {"low": 1.0, "mid": 1.0, "high": 1.0, "centroid": 0.5}
+# How much each measurement counts towards the distance score.
+#
+# These are weighted by how stable each measurement is across takes of the same
+# performance, measured on a real amp: over three 20s windows of continuous
+# playing with nothing changed, crest factor moved 5.9%, the harmonic ratio
+# 9.1%, the centroid 16.3% - but the band ratios moved 30%, 55% and 99%.
+#
+# Band balance is still what a listener hears as "tone", so it cannot be
+# dropped; it is down-weighted so a distance is not dominated by whichever
+# notes happened to be played. See docs/measurements.md.
+WEIGHTS = {"low": 0.5, "mid": 0.8, "high": 0.6, "centroid": 0.8}
 
 # Knob movement per unit of measured gap, on the amp's 0-10 scale.
 BAND_TO_KNOB = 8.0
 CENTROID_TO_TREBLE = 1.5
 CREST_TO_GAIN = 0.25
 
-# Gaps smaller than this are within measurement noise; leave them alone.
-BAND_DEADBAND = 0.03
-CENTROID_DEADBAND_OCTAVES = 0.15
+# Gaps smaller than these are inside the noise of playing the part twice, so
+# acting on them chases the performance rather than the amp. Measured on a real
+# amp rather than guessed: across 20s windows of the same continuous playing the
+# low band moved by about 0.068 absolute, the mid by 0.095 and the high by 0.065.
+#
+# Per band, because they are not equally noisy - the low band is by far the
+# worst, since playing higher up the neck empties it.
+BAND_DEADBAND = {"low": 0.08, "mid": 0.10, "high": 0.07}
+
+CENTROID_DEADBAND_OCTAVES = 0.25
 CREST_DEADBAND_DB = 2.0
+
+# The distance two takes of the same performance typically differ by, with
+# nothing changed. Measured at 0.08 over 30s takes and 0.24 over 20s takes, so
+# a shorter take is not worth running. A distance change smaller than this
+# carries no information.
+PLAYING_NOISE_FLOOR = 0.08
+MIN_TAKE_SECONDS = 30.0
 
 # No single iteration moves a knob further than this.
 MAX_STEP = 1.5
@@ -63,16 +84,26 @@ class Comparison:
 
     crest_gap_db: float
     moves: list[Move] = field(default_factory=list)
+    noise_floor: float = PLAYING_NOISE_FLOOR
 
     @property
     def converged(self) -> bool:
         return self.distance <= CONVERGED
 
+    @property
+    def significant(self) -> bool:
+        """Whether the gap is larger than the noise of playing the part twice.
+
+        Below the floor the measurement cannot tell a tone difference from a
+        different take, so any move would be chasing the performance.
+        """
+        return self.distance > self.noise_floor
+
     def describe(self) -> str:
         arrow = lambda v: "too much" if v > 0 else "too little"  # noqa: E731
         lines = [f"distance {self.distance:.3f}" + ("  CONVERGED" if self.converged else "")]
         for band, gap in self.band_gaps.items():
-            if abs(gap) >= BAND_DEADBAND:
+            if abs(gap) >= BAND_DEADBAND[band]:
                 lines.append(f"  {band:5} {gap:+.3f}  ({arrow(gap)})")
         if abs(self.centroid_octaves) >= CENTROID_DEADBAND_OCTAVES:
             direction = "brighter" if self.centroid_octaves > 0 else "darker"
@@ -83,6 +114,11 @@ class Comparison:
                 lines.append(f"    {move.control} {move.delta:+.1f}  {move.why}")
         elif not self.converged:
             lines.append("  no move suggested: every gap is inside the deadband")
+        if not self.significant:
+            lines.append(
+                f"  NOTE: below the {self.noise_floor:.2f} noise floor of playing "
+                "the part twice - this difference may be the performance, not the amp"
+            )
         return "\n".join(lines)
 
 
@@ -129,7 +165,7 @@ def _moves_for(
     band_to_knob = {"low": "bass", "mid": "mid", "high": "treb"}
 
     for band, gap in sorted(band_gaps.items(), key=lambda kv: -abs(kv[1])):
-        if abs(gap) < BAND_DEADBAND:
+        if abs(gap) < BAND_DEADBAND[band]:
             continue
         delta = _clamp(-gap * BAND_TO_KNOB)
         if abs(delta) < 0.1:
