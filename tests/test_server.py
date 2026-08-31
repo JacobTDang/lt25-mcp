@@ -53,6 +53,12 @@ class StubSession:
     def product_id(self):
         return "mustang-lt-25"
 
+    def open(self):
+        return self
+
+    def close(self):
+        self.closed = True
+
     def __enter__(self):
         return self
 
@@ -63,9 +69,12 @@ class StubSession:
 @pytest.fixture
 def stub_amp(monkeypatch, sample_preset):
     StubSession.instances.clear()
+    # A held audition session must not leak between tests.
+    monkeypatch.setattr(srv, "_held", None)
     raw = sample_preset.to_dict()
     monkeypatch.setattr(srv, "_session", lambda: StubSession(raw))
-    return raw
+    yield raw
+    srv._held = None
 
 
 def call(tool):
@@ -126,3 +135,51 @@ class TestSessionHygiene:
         call(srv.get_preset)(1)
         call(srv.get_preset)(2)
         assert len(StubSession.instances) == 2
+
+
+class TestAuditionHoldsTheSession:
+    """The amp drops a session that stops sending heartbeats, so an audition
+    only survives while its session is held open."""
+
+    def test_audition_leaves_the_session_open(self, stub_amp):
+        call(srv.audition_preset)(json.dumps(stub_amp))
+        assert StubSession.instances[-1].closed is False
+
+    def test_stop_audition_closes_the_held_session(self, stub_amp):
+        call(srv.audition_preset)(json.dumps(stub_amp))
+        held = StubSession.instances[-1]
+        call(srv.stop_audition)()
+        assert held.closed is True
+        assert "exitAuditionPreset" in held.calls
+
+    def test_a_second_audition_replaces_the_first(self, stub_amp):
+        call(srv.audition_preset)(json.dumps(stub_amp))
+        first = StubSession.instances[-1]
+        call(srv.audition_preset)(json.dumps(stub_amp))
+        assert first.closed is True
+        assert StubSession.instances[-1] is not first
+        assert StubSession.instances[-1].closed is False
+
+    def test_other_tools_reuse_the_held_session(self, stub_amp):
+        """Only one program can hold the amp, so tools must not open a second."""
+        call(srv.audition_preset)(json.dumps(stub_amp))
+        held = StubSession.instances[-1]
+        before = len(StubSession.instances)
+        call(srv.get_preset)(1)
+        assert len(StubSession.instances) == before
+        assert held.closed is False
+
+    def test_other_tools_do_not_close_the_held_session(self, stub_amp):
+        call(srv.audition_preset)(json.dumps(stub_amp))
+        held = StubSession.instances[-1]
+        call(srv.get_preset)(1)
+        assert held.closed is False
+
+    def test_stop_audition_with_nothing_held_still_works(self, stub_amp):
+        result = call(srv.stop_audition)()
+        assert result["auditioning"] is False
+        assert StubSession.instances[-1].closed is True
+
+    def test_normal_tools_still_close_when_nothing_is_held(self, stub_amp):
+        call(srv.get_preset)(1)
+        assert StubSession.instances[-1].closed is True
