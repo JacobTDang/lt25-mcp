@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Run python in the project venv, working around uv writing .pth files with the
+# macOS UF_HIDDEN flag (CPython >= 3.12 silently skips hidden .pth files).
+# Usage: ./scripts/py [args...]   -- same as `uv run python [args...]`
+set -euo pipefail
+cd "$(dirname "$0")/.."
+uv sync --quiet
+shopt -s nullglob
+files=(.venv/lib/python*/site-packages/*.pth)
+(( ${#files[@]} )) && chflags nohidden "${files[@]}"
+exec uv run --no-sync python "$@"
