@@ -74,6 +74,14 @@ class ToneFeatures:
 
     duration_s: float
 
+    sample_rate_hz: int = 44100
+    """Sample rate of the source. Low rates truncate the high band."""
+
+    high_band_truncated: bool = False
+    """True when the source's Nyquist limit falls inside the high band, so the
+    measured treble content is an underestimate and the treble knob derived
+    from it should not be trusted."""
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -94,7 +102,17 @@ class ToneFeatures:
                 f"  tempo           {self.estimated_tempo_bpm:.0f} BPM",
                 f"  key             {self.estimated_key}",
                 f"  tuning offset   {self.tuning_offset_semitones:+.2f} semitones",
+                f"  sample rate     {self.sample_rate_hz} Hz",
             ]
+            + (
+                [
+                    f"  NOTE: Nyquist is {self.sample_rate_hz // 2} Hz, inside the "
+                    f"{int(HIGH_BAND[0])}-{int(HIGH_BAND[1])} Hz band, so the high "
+                    "band is truncated and treble is understated",
+                ]
+                if self.high_band_truncated
+                else []
+            )
         )
 
 
@@ -153,7 +171,7 @@ def extract(path: Path) -> ToneFeatures:
     tempo = librosa.feature.tempo(onset_envelope=onset_env, sr=sr)
     tuning = float(librosa.estimate_tuning(y=y, sr=sr)) * 12.0
 
-    chroma = librosa.feature.chroma_cqt(y=harmonic, sr=sr).mean(axis=1)
+    chroma = _chroma(harmonic, sr).mean(axis=1)
     key = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"][
         int(np.argmax(chroma))
     ]
@@ -174,7 +192,26 @@ def extract(path: Path) -> ToneFeatures:
         estimated_key=key,
         tuning_offset_semitones=tuning,
         duration_s=float(len(y) / sr),
+        sample_rate_hz=int(sr),
+        high_band_truncated=bool(sr / 2 < HIGH_BAND[1]),
     )
+
+
+def _chroma(harmonic, sr: int):
+    """Chroma over as many octaves as the sample rate actually supports.
+
+    librosa's constant-Q chroma defaults to seven octaves from C1, whose top
+    bin lands near 4186 Hz. On an 8 kHz source that exceeds Nyquist and raises
+    rather than degrading, so the octave count is reduced to fit.
+    """
+    import librosa
+    import numpy as np
+
+    fmin = librosa.note_to_hz("C1")
+    nyquist = sr / 2
+    octaves = int(np.floor(np.log2(nyquist / fmin)))
+    octaves = max(1, min(7, octaves))
+    return librosa.feature.chroma_cqt(y=harmonic, sr=sr, n_octaves=octaves)
 
 
 DECAY_FRAME = 2048

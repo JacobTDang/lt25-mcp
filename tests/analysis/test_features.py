@@ -174,3 +174,34 @@ class TestDecayIgnoresFadeOuts:
             extract(write(tmp_path, wet, "wet.wav")).decay_time_s
             > extract(write(tmp_path, dry, "dry.wav")).decay_time_s
         )
+
+
+class TestLowSampleRates:
+    """Phone recordings, old uploads and some social clips arrive at 8-16 kHz."""
+
+    def _write_at(self, tmp_path, rate, name):
+        n = int(rate * 2.0)
+        tt = np.linspace(0, 2.0, n, endpoint=False)
+        sig = 0.5 * np.sin(2 * math.pi * 220 * tt) + 0.2 * np.sin(2 * math.pi * 660 * tt)
+        path = tmp_path / name
+        sf.write(path, sig.astype(np.float32), rate)
+        return path
+
+    @pytest.mark.parametrize("rate", [8000, 11025, 16000, 22050, 44100])
+    def test_extraction_does_not_crash(self, tmp_path, rate):
+        f = extract(self._write_at(tmp_path, rate, f"{rate}.wav"))
+        assert f.duration_s == pytest.approx(2.0, abs=0.05)
+
+    def test_sample_rate_is_reported(self, tmp_path):
+        assert extract(self._write_at(tmp_path, 8000, "a.wav")).sample_rate_hz == 8000
+
+    def test_truncated_high_band_is_flagged(self, tmp_path):
+        """At 8 kHz the 2-8 kHz band is half empty, so treble is not measurable."""
+        low = extract(self._write_at(tmp_path, 8000, "low.wav"))
+        full = extract(self._write_at(tmp_path, 44100, "full.wav"))
+        assert low.high_band_truncated is True
+        assert full.high_band_truncated is False
+
+    def test_describe_warns_about_truncation(self, tmp_path):
+        text = extract(self._write_at(tmp_path, 8000, "a.wav")).describe()
+        assert "truncat" in text.lower() or "nyquist" in text.lower()
