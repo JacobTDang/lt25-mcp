@@ -14,6 +14,9 @@ from typing import Protocol
 
 from lt25_mcp.framing import PACKET_SIZE, PacketAssembler, encode
 
+DRAIN_TIMEOUT_MS = 5
+"""Poll timeout when clearing stale input. hidapi treats 0 as blocking."""
+
 VENDOR_ID = 0x1ED8
 PRODUCT_ID = 0x0037
 
@@ -53,6 +56,28 @@ class Transport:
             message = self._assembler.feed(packet)
             if message is not None:
                 return message
+
+    def drain(self) -> int:
+        """Discard anything the amp has already sent and reset reassembly.
+
+        The amp emits status messages of its own accord, and a large exchange
+        can leave replies queued behind the one a caller consumed. Starting a
+        new request on top of that leftover data lands mid-message, which the
+        framing layer correctly rejects as a continuation with no start.
+
+        Returns the number of stale packets dropped, so callers can tell the
+        difference between a clean line and a noisy one.
+        """
+        # A timeout of 0 means "block forever" in hidapi, not "poll" - use the
+        # smallest positive timeout instead.
+        dropped = 0
+        while True:
+            chunk = self._backend.read(PACKET_SIZE, DRAIN_TIMEOUT_MS)
+            if not chunk:
+                break
+            dropped += 1
+        self._assembler = PacketAssembler()
+        return dropped
 
     def close(self) -> None:
         self._backend.close()

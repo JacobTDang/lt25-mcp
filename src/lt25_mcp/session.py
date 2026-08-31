@@ -44,6 +44,7 @@ class Session:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._open = False
+        self.stale_packets_dropped = 0
 
     @property
     def is_open(self) -> bool:
@@ -81,6 +82,9 @@ class Session:
             raise SessionError("session is not open")
         sent = next(iter(payload), "<none>")
         with self._lock:
+            # Clear anything the amp sent unprompted, so the reply we read
+            # belongs to the request we are about to make.
+            self.stale_packets_dropped += self._transport.drain()
             self._transport.send(encode_message(**payload))
             for _ in range(MAX_SKIPPED_REPLIES):
                 raw = self._transport.receive(timeout_ms=timeout_ms)

@@ -112,3 +112,22 @@ class TestOpen:
         monkeypatch.setattr(mod, "_open_hid_device", lambda: BoomDevice())
         with pytest.raises(TransportError, match="Fender Tone"):
             mod.open_transport()
+
+
+class TestDrain:
+    def test_drain_discards_pending_packets(self):
+        backend = FakeBackend(device_reply(b"stale") + device_reply(b"also stale"))
+        transport = Transport(backend)
+        assert transport.drain() == 2
+
+    def test_drain_resets_partial_reassembly(self):
+        """Joining a multi-packet message mid-stream must not poison the next read."""
+        partial = device_reply(b"x" * 150)[:2]  # start + continuation, no end
+        backend = FakeBackend(partial)
+        transport = Transport(backend)
+        transport.drain()
+        backend._to_read = device_reply(b"fresh")
+        assert transport.receive(timeout_ms=10) == b"fresh"
+
+    def test_drain_on_quiet_line_reports_zero(self):
+        assert Transport(FakeBackend()).drain() == 0

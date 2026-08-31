@@ -20,6 +20,9 @@ class ScriptedTransport:
     def receive(self, timeout_ms=1000):
         return self._replies.pop(0) if self._replies else None
 
+    def drain(self):
+        return 0
+
     def close(self):
         self.closed = True
 
