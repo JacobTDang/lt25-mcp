@@ -81,3 +81,38 @@ class TestRecord:
         dest = tmp_path / "nested" / "a.wav"
         assert record(dest, device_index=2, runner=runner_for("", 0)) == dest
         assert dest.parent.is_dir()
+
+
+class TestCaptureDoesNotHang:
+    """macOS gates audio capture behind a Microphone permission, and a process
+    without it blocks forever producing no output and no error."""
+
+    def test_a_blocked_capture_raises_instead_of_hanging(self, tmp_path):
+        import subprocess as sp
+
+        def hangs(_argv):
+            raise sp.TimeoutExpired(cmd="ffmpeg", timeout=35)
+
+        with pytest.raises(CaptureError, match="Microphone permission"):
+            record(tmp_path / "a.wav", seconds=20, device_index=2, runner=hangs)
+
+    def test_the_error_says_what_to_do(self, tmp_path):
+        import subprocess as sp
+
+        def hangs(_argv):
+            raise sp.TimeoutExpired(cmd="ffmpeg", timeout=35)
+
+        with pytest.raises(CaptureError) as exc:
+            record(tmp_path / "a.wav", seconds=5, device_index=2, runner=hangs)
+        assert "System Settings" in str(exc.value)
+
+    def test_injected_runners_stay_argv_only(self, tmp_path):
+        """A test double must not need to know about timeouts."""
+        seen = []
+
+        def plain(argv):
+            seen.append(argv)
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+        record(tmp_path / "a.wav", seconds=1, device_index=2, runner=plain)
+        assert seen and seen[0][0] == "ffmpeg"

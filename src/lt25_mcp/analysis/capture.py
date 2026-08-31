@@ -26,8 +26,16 @@ class CaptureError(Exception):
     """Raised when audio could not be recorded."""
 
 
-def _run(argv: Sequence[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(argv, capture_output=True, text=True, check=False)
+# How long past the requested duration to wait before giving up. macOS gates
+# audio capture behind a Microphone permission, and a process that has not been
+# granted it blocks indefinitely with no output at all rather than failing.
+CAPTURE_GRACE_S = 15.0
+
+
+def _run(argv: Sequence[str], timeout: float | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        argv, capture_output=True, text=True, check=False, timeout=timeout
+    )
 
 
 def list_devices_argv() -> list[str]:
@@ -96,14 +104,25 @@ def record(
     runner: Runner | None = None,
 ) -> Path:
     """Record the amp's output to `dest`."""
-    run = runner or _run
     if seconds <= 0:
         raise CaptureError(f"seconds must be positive, got {seconds}")
+    # Injected runners stay argv-only; the timeout belongs to the real one.
+    deadline = seconds + CAPTURE_GRACE_S
+    run = runner or (lambda argv: _run(argv, timeout=deadline))
     if device_index is None:
         device_index, _name = find_amp_device(runner=runner)
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    result = run(capture_argv(device_index, seconds, dest))
+    try:
+        result = run(capture_argv(device_index, seconds, dest))
+    except subprocess.TimeoutExpired as exc:
+        raise CaptureError(
+            f"capture produced nothing after {deadline:.0f}s. "
+            "On macOS this is almost always the Microphone permission: the "
+            "terminal running this needs it granted under System Settings > "
+            "Privacy & Security > Microphone. Run a capture from your own "
+            "shell once to trigger the prompt."
+        ) from exc
     if result.returncode != 0:
         raise CaptureError(f"ffmpeg capture failed: {(result.stderr or '').strip()[-400:]}")
     if runner is None and not dest.exists():
