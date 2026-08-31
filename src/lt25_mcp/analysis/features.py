@@ -10,6 +10,7 @@ Units are stated on every field because the mapping rules depend on them.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -250,3 +251,45 @@ def _decay_time(y, sr: int) -> float:
         # whole clip: the true decay is at least this long.
         return float(len(y) / sr)
     return float(librosa.frames_to_time(below[0], sr=sr, hop_length=DECAY_HOP))
+
+
+SPECTRUM_BANDS = 28
+SPECTRUM_MIN_HZ = 60.0
+SPECTRUM_MAX_HZ = 12000.0
+
+
+def log_spectrum(path: Path, bands: int = SPECTRUM_BANDS) -> tuple[list[float], list[float]]:
+    """A coarse log-spaced spectrum, for drawing rather than for measuring.
+
+    Returns band centre frequencies and their levels in dB relative to the
+    loudest band, so two spectra can be overlaid regardless of how loud either
+    recording happens to be.
+    """
+    import librosa
+    import numpy as np
+
+    path = Path(path)
+    if not path.exists():
+        raise FeatureError(f"no such audio file: {path}")
+
+    y, sr = librosa.load(str(path), sr=None, mono=True)
+    if y.size == 0:
+        raise FeatureError(f"{path} contains no audio")
+
+    magnitude = np.abs(librosa.stft(y)).mean(axis=1)
+    freqs = librosa.fft_frequencies(sr=sr)
+    top = min(SPECTRUM_MAX_HZ, sr / 2)
+    edges = np.logspace(np.log10(SPECTRUM_MIN_HZ), np.log10(top), bands + 1)
+
+    centres: list[float] = []
+    levels: list[float] = []
+    for low, high in zip(edges[:-1], edges[1:]):
+        mask = (freqs >= low) & (freqs < high)
+        energy = float(magnitude[mask].mean()) if mask.any() else 0.0
+        centres.append(float(np.sqrt(low * high)))
+        levels.append(energy)
+
+    peak = max(levels) or 1.0
+    return centres, [
+        20.0 * math.log10(max(level, peak * 1e-5) / peak) for level in levels
+    ]

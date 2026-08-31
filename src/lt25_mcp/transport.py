@@ -10,6 +10,9 @@ needs no driver and no macOS Input Monitoring permission.
 
 from __future__ import annotations
 
+import fcntl
+import os
+from pathlib import Path
 from typing import Protocol
 
 from lt25_mcp.framing import PACKET_SIZE, PacketAssembler, encode
@@ -20,9 +23,62 @@ DRAIN_TIMEOUT_MS = 5
 VENDOR_ID = 0x1ED8
 PRODUCT_ID = 0x0037
 
+LOCK_PATH = Path.home() / ".config" / "lt25-mcp" / "amp.lock"
+"""Advisory lock so two processes cannot hold the amp at once."""
+
 
 class TransportError(Exception):
     """Raised when the HID device cannot be reached or behaves unexpectedly."""
+
+
+class AmpLock:
+    """An advisory file lock guarding access to the amp.
+
+    Only one program can hold the amp's control channel, and hidapi reports a
+    collision as a bare OSError that says nothing useful. This turns it into a
+    message naming the process that has it, and the lock is released by the
+    kernel if that process dies without cleaning up.
+    """
+
+    def __init__(self, path: Path | str | None = None) -> None:
+        self._path = Path(path or LOCK_PATH)
+        self._fd: int | None = None
+
+    def acquire(self) -> None:
+        if self._fd is not None:
+            return
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(self._path, os.O_RDWR | os.O_CREAT, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            holder = os.read(fd, 32).decode(errors="replace").strip() or "unknown"
+            os.close(fd)
+            raise TransportError(
+                f"the amp is already in use by another program (pid {holder}). "
+                "Only one can hold its control channel - close the other one, "
+                "or wait for it to finish."
+            ) from exc
+        os.ftruncate(fd, 0)
+        os.write(fd, str(os.getpid()).encode())
+        os.fsync(fd)
+        self._fd = fd
+
+    def release(self) -> None:
+        if self._fd is None:
+            return
+        fd, self._fd = self._fd, None
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+    def __enter__(self) -> AmpLock:
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.release()
 
 
 class HidBackend(Protocol):

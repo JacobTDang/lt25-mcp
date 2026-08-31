@@ -205,3 +205,51 @@ class TestLowSampleRates:
     def test_describe_warns_about_truncation(self, tmp_path):
         text = extract(self._write_at(tmp_path, 8000, "a.wav")).describe()
         assert "truncat" in text.lower() or "nyquist" in text.lower()
+
+
+class TestLogSpectrum:
+    def test_returns_the_requested_band_count(self, tmp_path):
+        from lt25_mcp.analysis.features import log_spectrum
+
+        freqs, levels = log_spectrum(write(tmp_path, sine(440)), bands=20)
+        assert len(freqs) == len(levels) == 20
+
+    def test_frequencies_ascend(self, tmp_path):
+        from lt25_mcp.analysis.features import log_spectrum
+
+        freqs, _ = log_spectrum(write(tmp_path, sine(440)))
+        assert freqs == sorted(freqs)
+
+    def test_shape_is_preserved_across_loudness(self, tmp_path):
+        """Two takes of the same tone at different levels must overlay.
+
+        Only compared above the noise floor: these fixtures are 16-bit, so a
+        much quieter take genuinely has a different floor, and bands down
+        there carry quantisation noise rather than signal.
+        """
+        from lt25_mcp.analysis.features import log_spectrum
+
+        quiet = log_spectrum(write(tmp_path, sine(440, amp=0.25), "q.wav"))[1]
+        loud = log_spectrum(write(tmp_path, sine(440, amp=0.9), "l.wav"))[1]
+        audible = [(q, l) for q, l in zip(quiet, loud) if l > -40]
+        assert audible
+        for q, l in audible:
+            assert q == pytest.approx(l, abs=1.5)
+
+    def test_the_loudest_band_sits_at_zero_db(self, tmp_path):
+        from lt25_mcp.analysis.features import log_spectrum
+
+        assert max(log_spectrum(write(tmp_path, sine(440)))[1]) == pytest.approx(0.0)
+
+    def test_a_tone_peaks_in_its_own_band(self, tmp_path):
+        from lt25_mcp.analysis.features import log_spectrum
+
+        freqs, levels = log_spectrum(write(tmp_path, sine(1000)))
+        peak_hz = freqs[levels.index(max(levels))]
+        assert 700 < peak_hz < 1400
+
+    def test_missing_file_raises(self, tmp_path):
+        from lt25_mcp.analysis.features import log_spectrum
+
+        with pytest.raises(FeatureError, match="no such audio file"):
+            log_spectrum(tmp_path / "nope.wav")

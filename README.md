@@ -190,6 +190,39 @@ detection reports "inconclusive" and leaves the base preset's reverb alone
 instead of inventing a hall.
 
 
+## The workbench
+
+A live view of a run, served locally:
+
+```bash
+./scripts/py scripts/workbench_demo.py --target <guitar-stem.wav>
+```
+
+It opens a black bench at `127.0.0.1:8765` showing what is happening as it
+happens, not after:
+
+- **Pipeline** — every stage as a lit strip: what is running now, what each
+  step took, and which one failed if one did.
+- **Signal chain** — the amp's fixed path drawn as the row of boxes a player
+  actually thinks in. Guitar, stomp, mod, amp, delay, reverb, speaker; lit
+  units carry their model name and live knob pointers, empty slots are dashed
+  and dark.
+- **Distance to target** — one number, trending down across iterations.
+- **Where the tone is off** — the three bands as a diverging bar around zero:
+  right means the amp has too much, left too little.
+- **Spectrum** — the target with the amp's own laid over it, so convergence is
+  visible rather than asserted.
+- **Next move** — the knob change, and the measurement that justifies it.
+
+Updates arrive over server-sent events, so an iteration appears the moment it
+is recorded. No framework, no CDN, no Electron: a local page reading local
+state. The demo stands in for the amp by applying each suggested knob move as
+a real EQ change through ffmpeg — the loop, the measurements and the
+convergence are all genuine, only the amp is simulated.
+
+The palette is the validated default from the data-viz method, run through its
+own checker in both modes rather than eyeballed.
+
 ## How the amp talks
 
 Control messages travel over USB HID as fixed 64-byte reports:
