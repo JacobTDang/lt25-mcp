@@ -10,9 +10,10 @@
 
 ## Status as built
 
-Phase 1 is complete and verified against a real Mustang LT 25 on firmware
-2.1.4. Phase 2 is complete in code with its logic tested; the one step never
-exercised is a real yt-dlp download, because no target clip was supplied.
+Both phases are complete and verified. Amp control ran against a real Mustang
+LT 25 on firmware 2.1.4; the analysis pipeline ran end to end on a real
+YouTube clip. Three subsystems were added that this plan did not anticipate,
+described below.
 
 | Task | State |
 |---|---|
@@ -24,13 +25,40 @@ exercised is a real yt-dlp download, because no target clip was supplied.
 | 6 Preset model + catalog | done |
 | 7 Audition | done, hardware verified |
 | 8 Guarded write | done, hardware verified |
-| 9 MCP server | done, 9 tools |
-| 10 Acquire | done, argv tested; live download not run |
-| 11 Stems | done |
-| 12 Features | done, validated on synthesized audio |
+| 9 MCP server | done, 17 tools + 1 prompt |
+| 10 Acquire | done, live download verified |
+| 11 Stems | done, demucs htdemucs_6s |
+| 12 Features | done, validated on synthesized and real audio |
 | 13 Plots | done |
-| 14 Mapping | done, thresholds uncalibrated (issue #4) |
+| 14 Mapping | done, clean path calibrated; crunch and high-gain are not |
 | 15 CLI | done |
+
+### Added beyond the plan
+
+**Stability harness** (`analysis/stability.py`). Correctness needs labelled
+ground truth; stability does not. The same performance at a different level,
+section or sample rate must produce the same amp model. This was added after a
+reverb discrepancy between two trims of the same clip was found by accident
+rather than by measurement. The courage stem scores 100% agreement.
+
+**Tuning harness** (`tuning.py`, `parameters.py`). The MCP tools existed but
+nothing explained how to use them together, so an assistant could read a
+preset's numbers without knowing which were knobs or what scale they were on.
+Adds a parameter schema with musical descriptions, a complaint-to-move
+mapping, and a `match_tone` prompt encoding the audition-ask-adjust loop.
+
+**Guitar adaptation** (`rig.py`, `guitar.py`, `analysis/capture.py`). A preset
+is not a tone on its own: the same settings sound different through different
+pickups, and a real pedal in front makes the matching amp slot redundant.
+Guitars are measured through the amp's USB audio input rather than
+categorised, and stored as deltas from a reference instrument.
+
+### Not built
+
+**The convergence loop.** The plan describes it and the pieces now exist -
+audition, capture, feature extraction, comparison plots - but nothing joins
+them. This is the largest remaining gap and the thing that would turn
+one-shot tone guessing into something that actually converges.
 
 Corrections made to this plan during execution, all verified against the real
 schema or hardware:
