@@ -156,6 +156,47 @@ def record(
     return dest
 
 
+def wait_for_playing(
+    timeout: float = 90.0,
+    poll_seconds: float = 1.5,
+    *,
+    device_index: int | None = None,
+    on_wait=None,
+) -> None:
+    """Block until someone is actually playing, or give up.
+
+    Coordinating "start playing now" with a script is the thing that goes
+    wrong: a take that begins two seconds early records silence and nobody
+    notices until the numbers are already in a corpus. Listening first removes
+    the coordination entirely.
+    """
+    import tempfile
+    import time
+
+    if device_index is None:
+        device_index, _ = find_amp_device()
+    probe_dir = Path(tempfile.mkdtemp(prefix="lt25-listen-"))
+    deadline = time.monotonic() + timeout
+    attempt = 0
+
+    while time.monotonic() < deadline:
+        attempt += 1
+        probe = probe_dir / f"probe{attempt}.wav"
+        try:
+            record(probe, poll_seconds, device_index=device_index,
+                   allow_short=True, allow_silent=True)
+            check_has_signal(probe)
+            return
+        except CaptureError:
+            if on_wait is not None:
+                on_wait(attempt)
+    raise CaptureError(
+        f"heard nothing for {timeout:.0f}s. Check the guitar is plugged into "
+        "the amp's INPUT, the amp's master volume is up, and that the USB "
+        "cable is the one carrying audio."
+    )
+
+
 def check_has_signal(path: Path) -> tuple[float, float]:
     """Refuse a capture that is just the amp idling.
 

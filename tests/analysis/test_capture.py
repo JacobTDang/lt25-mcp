@@ -205,3 +205,47 @@ class TestSilenceIsRefused:
         sf.write(path, np.zeros(0, dtype=np.float32), 44100)
         with pytest.raises(CaptureError):
             check_has_signal(path)
+
+
+class TestWaitForPlaying:
+    """Coordinating 'start now' by hand is what produced nine silent takes."""
+
+    def test_returns_as_soon_as_signal_appears(self, tmp_path, monkeypatch):
+        import math
+
+        import numpy as np
+        import soundfile as sf
+
+        from lt25_mcp.analysis import capture as cap
+
+        calls = {"n": 0}
+
+        def fake_record(dest, seconds, **kw):
+            calls["n"] += 1
+            t = np.linspace(0, 1.0, 44100, endpoint=False)
+            amp = 0.001 if calls["n"] < 3 else 0.5   # quiet, quiet, then playing
+            sf.write(dest, (amp * np.sin(2 * math.pi * 220 * t)).astype(np.float32),
+                     44100, subtype="FLOAT")
+            return dest
+
+        monkeypatch.setattr(cap, "record", fake_record)
+        cap.wait_for_playing(timeout=10, poll_seconds=0.1, device_index=2)
+        assert calls["n"] == 3
+
+    def test_gives_up_with_an_actionable_error(self, tmp_path, monkeypatch):
+        import math
+
+        import numpy as np
+        import soundfile as sf
+
+        from lt25_mcp.analysis import capture as cap
+
+        def always_quiet(dest, seconds, **kw):
+            t = np.linspace(0, 1.0, 44100, endpoint=False)
+            sf.write(dest, (0.001 * np.sin(2 * math.pi * 220 * t)).astype(np.float32),
+                     44100, subtype="FLOAT")
+            return dest
+
+        monkeypatch.setattr(cap, "record", always_quiet)
+        with pytest.raises(CaptureError, match="plugged into"):
+            cap.wait_for_playing(timeout=0.5, poll_seconds=0.05, device_index=2)
