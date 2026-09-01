@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import itertools
 import json
-from dataclasses import asdict, dataclass, field
+import re
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 from lt25_mcp.analysis.features import ToneFeatures, extract
+from lt25_mcp.dsp_catalog import AMP_MODELS
 
 LABELS = ("clean", "crunch", "high_gain")
 
@@ -44,25 +46,76 @@ class Sample:
     source: str = ""
     notes: str = ""
 
+    amp_model: str = ""
+    """FenderId of the amp the clip was actually recorded through, when known.
+
+    A clip captured through a factory preset has one - Fender's own choice of
+    model is the ground truth. A stem separated from a recording does not, and
+    an empty value means exactly that: no claim, rather than a guess.
+    """
+
     def __post_init__(self) -> None:
         if self.label not in LABELS:
             raise CorpusError(
                 f"{self.label!r} is not a known label; choose one of: {', '.join(LABELS)}"
+            )
+        if self.amp_model and self.amp_model not in AMP_MODELS:
+            raise CorpusError(
+                f"{self.amp_model!r} is not a known amp model FenderId"
             )
 
     def to_dict(self) -> dict:
         return asdict(self)
 
 
+def amp_model_from_source(source: str) -> str:
+    """The FenderId a capture's source string names, or '' if it names none.
+
+    Clips recorded through the amp carry the preset's amp label in
+    parentheses - "amp slot 1 FENDER CLEAN (TWIN CLEAN), played live" - and
+    the catalog maps that label back to a FenderId. Reverse-mapping through
+    the catalog rather than trusting any parenthesis keeps a source like
+    "courage solo (TAB lesson)" from inventing a ground truth.
+    """
+    labels = {label: fender_id for fender_id, label in AMP_MODELS.items()}
+    for candidate in re.findall(r"\(([^)]+)\)", source):
+        if candidate in labels:
+            return labels[candidate]
+    return ""
+
+
 @dataclass
 class Corpus:
     samples: list[Sample] = field(default_factory=list)
 
-    def add(self, path: Path | str, label: str, source: str = "", notes: str = "") -> Sample:
-        sample = Sample(str(path), label, source, notes)
+    def add(
+        self,
+        path: Path | str,
+        label: str,
+        source: str = "",
+        notes: str = "",
+        amp_model: str = "",
+    ) -> Sample:
+        sample = Sample(str(path), label, source, notes, amp_model)
         self.samples = [s for s in self.samples if s.path != sample.path]
         self.samples.append(sample)
         return sample
+
+    def backfill_amp_models(self) -> int:
+        """Fill empty `amp_model` fields recoverable from source strings.
+
+        Returns how many were filled. An explicit value is never overwritten:
+        a stated truth beats a parsed one.
+        """
+        filled = 0
+        for sample in self.samples:
+            if sample.amp_model:
+                continue
+            model = amp_model_from_source(sample.source)
+            if model:
+                sample.amp_model = model
+                filled += 1
+        return filled
 
     def counts(self) -> dict[str, int]:
         return {label: sum(1 for s in self.samples if s.label == label) for label in LABELS}
@@ -77,6 +130,18 @@ class Corpus:
 
     @classmethod
     def from_dict(cls, data: dict) -> Corpus:
+        # A sample field this build does not know means the file was written
+        # by newer code. Loading it anyway would drop that field on the next
+        # save, so refuse loudly instead of truncating someone else's data.
+        known = {f.name for f in fields(Sample)}
+        for s in data.get("samples", []):
+            unknown = sorted(set(s) - known)
+            if unknown:
+                raise CorpusError(
+                    f"corpus sample carries unknown fields: {', '.join(unknown)}; "
+                    "the file was written by newer code, and loading it here "
+                    "would drop them on the next save"
+                )
         return cls(samples=[Sample(**s) for s in data.get("samples", [])])
 
     def save(self, path: Path | None = None) -> Path:
@@ -149,6 +214,96 @@ class Report:
         return "\n".join(lines)
 
 
+@dataclass
+class ModelPrediction:
+    sample: Sample
+    features: ToneFeatures
+    predicted: str
+
+    @property
+    def exact(self) -> bool:
+        return self.predicted == self.sample.amp_model
+
+    @property
+    def family(self) -> bool:
+        """The predicted model sits in the clip's gain family.
+
+        Deluxe65 for a Twin65 clip is a near miss - the player auditions a
+        clean Fender either way. Jcm800 for it is not. The truth side is the
+        clip's label rather than a family lookup, because the label *is* the
+        gain family Fender used the true model in.
+        """
+        from lt25_mcp.analysis.mapping import MODEL_FAMILY
+
+        return MODEL_FAMILY[self.predicted] == self.sample.label
+
+
+@dataclass
+class ModelReport:
+    predictions: list[ModelPrediction]
+    skipped: int
+    """Corpus clips with no known amp model, which cannot be scored."""
+
+    @property
+    def exact_accuracy(self) -> float:
+        if not self.predictions:
+            return 0.0
+        return sum(p.exact for p in self.predictions) / len(self.predictions)
+
+    @property
+    def family_accuracy(self) -> float:
+        if not self.predictions:
+            return 0.0
+        return sum(p.family for p in self.predictions) / len(self.predictions)
+
+    @property
+    def confusion(self) -> dict[str, dict[str, int]]:
+        """confusion[true model][predicted model] = count, observed pairs only.
+
+        Sparse rather than a full grid: eighteen models square is 324 cells,
+        and with nine clips all but a handful are zero.
+        """
+        matrix: dict[str, dict[str, int]] = {}
+        for p in self.predictions:
+            row = matrix.setdefault(p.sample.amp_model, {})
+            row[p.predicted] = row.get(p.predicted, 0) + 1
+        return matrix
+
+    def describe(self) -> str:
+        n = len(self.predictions)
+        exact = sum(p.exact for p in self.predictions)
+        family = sum(p.family for p in self.predictions)
+        skipped = f" ({self.skipped} skipped: no known model)" if self.skipped else ""
+        lines = [
+            f"amp model choice over {n} clips recorded through known presets{skipped}",
+            f"exact model:  {self.exact_accuracy:.0%} ({exact}/{n})",
+            f"right family: {self.family_accuracy:.0%} ({family}/{n})",
+            "",
+            f"{'':1}{'label':10} {'truth':12} {'predicted':12}  clip",
+        ]
+        for p in sorted(
+            self.predictions, key=lambda p: (p.sample.label, p.sample.amp_model)
+        ):
+            mark = " " if p.exact else ("~" if p.family else "!")
+            lines.append(
+                f"{mark}{p.sample.label:10} {_short(p.sample.amp_model):12} "
+                f"{_short(p.predicted):12}  {Path(p.sample.path).name}"
+            )
+        lines.append("")
+        lines.append("~ near miss: right gain family, wrong model within it")
+        lines.append("")
+        lines.append("confusion (truth -> predicted):")
+        for truth, row in sorted(self.confusion.items()):
+            for predicted, count in sorted(row.items()):
+                lines.append(f"  {_short(truth):12} -> {_short(predicted):12} {count}")
+        return "\n".join(lines)
+
+
+def _short(fender_id: str) -> str:
+    """FenderIds minus the noise: DUBS_Twin65 -> Twin65."""
+    return fender_id.removeprefix("DUBS_")
+
+
 def _classify(features: ToneFeatures, clean_flat: float, high_gain_flat: float) -> str:
     """The rule from mapping.gain_character, with the thresholds injected."""
     if features.spectral_flatness < clean_flat:
@@ -189,6 +344,44 @@ def evaluate(
         ],
         clean_flat=clean_flat,
         high_gain_flat=high_gain_flat,
+    )
+
+
+def evaluate_models(
+    corpus: Corpus,
+    measured: list[tuple[Sample, ToneFeatures]] | None = None,
+) -> ModelReport:
+    """Score `choose_amp_model` against clips whose true amp model is known.
+
+    `evaluate` checks the gain class; this checks the pick *within* it - the
+    centroid and midrange rules that decide Twin65 over Deluxe65 over
+    Princeton65. Ground truth is `Sample.amp_model`, the model of the factory
+    preset a clip was recorded through. Clips without one cannot be scored
+    and are counted as skipped rather than silently dropped.
+
+    There is deliberately no sweep counterpart: with nine clips over eighteen
+    models, searching the within-family rules for a better fit would be
+    fitting noise, per model, with one sample each.
+    """
+    from lt25_mcp.analysis.mapping import choose_amp_model
+
+    with_truth = [s for s in corpus.samples if s.amp_model]
+    if not with_truth:
+        raise CorpusError(
+            "no clip carries a known amp model; record through factory "
+            "presets, or backfill amp_model from the source strings"
+        )
+    if measured is None:
+        measured = measure(Corpus(samples=with_truth))
+    else:
+        measured = [(s, f) for s, f in measured if s.amp_model]
+
+    return ModelReport(
+        predictions=[
+            ModelPrediction(sample, features, choose_amp_model(features))
+            for sample, features in measured
+        ],
+        skipped=len(corpus.samples) - len(with_truth),
     )
 
 

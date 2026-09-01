@@ -9,6 +9,16 @@ So this aims for a defensible starting point, not a match. The intended use is
 to audition the result, listen, and adjust - which is why `describe_settings`
 exists: if the automatic choice is wrong, the numbers are still a better
 starting point than the middle of every knob.
+
+Measured against nine corpus clips recorded through known factory presets,
+that caution is warranted, in a specific shape: the gain family is right on
+8 of 9, but the exact model on only 2 of 9 - roughly what guessing within
+the family would score. The centroid and midrange rules that pick between
+models inside a family came from reputation, and on the two crunch clips
+that test the midrange rule it chose backwards. Nine clips are far too few
+to fit better per-model rules without fitting noise, so the rules stand as
+written: treat the family as evidence and the specific model as a
+suggestion to audition. See docs/measurements.md.
 """
 
 from __future__ import annotations
@@ -43,7 +53,11 @@ HIGH_GAIN_FLATNESS = 0.00259
 # the same way rather than classifying one in isolation.
 CREST_DEADBAND_DB = 2.0
 
-# Where 400-800 Hz stops being scooped and starts being forward.
+# Where 400-800 Hz stops being scooped and starts being forward. From
+# reputation, not measurement - and on the two corpus crunch clips that test
+# the forward boundary it chose backwards (the Plexi clip measured 24% mid,
+# the Deluxe Dirt clip 44%). Two clips cannot justify a replacement rule, so
+# it stands, with its trust recorded in evaluate_models' numbers.
 SCOOPED_MID = 0.18
 FORWARD_MID = 0.38
 
@@ -122,6 +136,25 @@ def _character_confidence(features: ToneFeatures) -> float:
         abs(features.spectral_flatness - HIGH_GAIN_FLATNESS),
     )
     return _clamp(margin / CONFIDENT_MARGIN)
+
+
+# The gain family of every model the rules below can choose - the grouping
+# they pick within, made public so the corpus can score a near miss (Deluxe65
+# for a Twin65 clip) differently from a wrong family (Jcm800 for it). The
+# family assignment is solid: it matches how Fender's own factory presets use
+# each model. The choice of model *within* a family is what scored 2 of 9.
+MODEL_FAMILY: dict[str, str] = {
+    "DUBS_Twin65": "clean",
+    "DUBS_Princeton65": "clean",
+    "DUBS_Deluxe65": "clean",
+    "DUBS_Plexi87": "crunch",
+    "DUBS_Bassman59": "crunch",
+    "DUBS_Deluxe57": "crunch",
+    "DUBS_Jcm800": "high_gain",
+    "DUBS_MetalRect2": "high_gain",
+    "DUBS_Rect2": "high_gain",
+    "DUBS_MetalEvh3": "high_gain",
+}
 
 
 def _amp_for_character(character: str, features: ToneFeatures) -> str:

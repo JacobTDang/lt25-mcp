@@ -312,8 +312,9 @@ prose. Label some clips and count:
 
 ```bash
 ./scripts/py scripts/calibrate.py add riff.wav --label high_gain
-./scripts/py scripts/calibrate.py evaluate      # score the current thresholds
-./scripts/py scripts/calibrate.py sweep         # search for better ones
+./scripts/py scripts/calibrate.py evaluate         # score the current thresholds
+./scripts/py scripts/calibrate.py sweep            # search for better ones
+./scripts/py scripts/calibrate.py evaluate-models  # score the model chooser
 ```
 
 `sweep` searches the threshold pair against the labelled corpus, reports
@@ -322,15 +323,26 @@ accuracy and a confusion matrix, and prints what to change — it never edits
 warns when a label has fewer than three clips, since a sweep over four samples
 is fitting noise.
 
-Only the clean path has real evidence so far: one clip, correctly classified.
-The crunch and high-gain branches have never seen real audio.
+The gain class has real evidence behind it: 90% on ten clips, per the
+calibration above. The choice of model *within* the class was measured the
+same way — nine clips were recorded through known factory presets, so
+Fender's own model pick is the ground truth per clip — and it does not hold
+up: exact model 2 of 9, right gain family 8 of 9, which is about what
+guessing inside the family would score. `evaluate-models` reports exact and
+family accuracy with a confusion matrix, and deliberately has no sweep
+counterpart: nine clips over eighteen models is one sample per rule, and
+fitting per-model boundaries to that would be fitting noise. The honest
+reading, recorded in `mapping.py` itself: trust the family, treat the
+specific model as a suggestion to audition. Details in
+[docs/measurements.md](docs/measurements.md).
 
-The amp's own factory presets were checked as a possible source of labels and
-rejected: `DUBS_Plexi87` appears at gain 4.1 and at 10.0 across three presets,
-so a preset's gain reflects the tone Fender wanted there, not the model's
-character. The groupings survive that check — the clean models really are used
-clean, and JCM800 really is used flat out — but per-model gain defaults would
-have been inventing a pattern the data does not contain.
+The amp's own factory presets were also checked as a possible source of
+per-model gain defaults and rejected: `DUBS_Plexi87` appears at gain 4.1 and
+at 10.0 across three presets, so a preset's gain reflects the tone Fender
+wanted there, not the model's character. The groupings survive that check —
+the clean models really are used clean, and JCM800 really is used flat out —
+but per-model gain defaults would have been inventing a pattern the data does
+not contain.
 
 ## Development
 

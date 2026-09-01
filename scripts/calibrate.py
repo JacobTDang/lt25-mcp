@@ -4,10 +4,17 @@
     ./scripts/py scripts/calibrate.py list
     ./scripts/py scripts/calibrate.py evaluate
     ./scripts/py scripts/calibrate.py sweep
+    ./scripts/py scripts/calibrate.py evaluate-models
 
 `evaluate` scores the current thresholds. `sweep` searches for better ones and
 prints what to change in mapping.py - it never edits the module itself, since a
 threshold worth adopting is worth reading first.
+
+`evaluate-models` scores the amp model chooser instead of the gain class:
+clips recorded through a factory preset have a known true model, and the
+report counts exact matches and near misses (right gain family, wrong model).
+There is no sweep for this - nine clips over eighteen models is too little
+evidence to fit per-model rules to.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ from lt25_mcp.analysis.corpus import (
     Corpus,
     CorpusError,
     evaluate,
+    evaluate_models,
     sweep,
 )
 from lt25_mcp.analysis.mapping import CLEAN_FLATNESS, HIGH_GAIN_FLATNESS
@@ -54,19 +62,24 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("list", help="show the corpus")
     sub.add_parser("evaluate", help="score the current thresholds")
     sub.add_parser("sweep", help="search for better thresholds")
+    sub.add_parser(
+        "evaluate-models", help="score the amp model chooser against known presets"
+    )
 
     remove = sub.add_parser("remove", help="drop a clip from the corpus")
     remove.add_argument("clip", type=Path)
 
     args = parser.parse_args(argv)
-    corpus = Corpus.load()
 
     try:
+        corpus = Corpus.load()
         if args.command == "add":
             if not args.clip.exists():
                 print(f"error: no such file: {args.clip}", file=sys.stderr)
                 return 1
             corpus.add(args.clip.resolve(), args.label, args.source, args.notes)
+            # A source naming a factory preset pins the true amp model too.
+            corpus.backfill_amp_models()
             corpus.save()
             counts = corpus.counts()
             print(f"added {args.clip.name} as {args.label}")
@@ -99,6 +112,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "evaluate":
             _warn_if_thin(corpus)
             print(evaluate(corpus).describe())
+            return 0
+
+        if args.command == "evaluate-models":
+            # Clips added before amp_model existed still name their preset in
+            # the source string; recover those labels rather than demanding a
+            # re-record.
+            if corpus.backfill_amp_models():
+                corpus.save()
+            print(evaluate_models(corpus).describe())
             return 0
 
         if args.command == "sweep":

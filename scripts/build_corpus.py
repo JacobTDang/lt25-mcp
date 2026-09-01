@@ -86,9 +86,12 @@ def main(argv: list[str] | None = None) -> int:
 
                     dest = args.work_dir / f"slot{slot:02d}_{label}.wav"
                     record(dest, args.seconds, allow_short=True)
+                    # The preset in hand knows the true amp model; store it
+                    # directly rather than re-parsing it out of the source.
                     corpus.add(dest, label,
                                source=f"amp slot {slot} {name} ({preset.amp_label}), "
-                                      "played live")
+                                      "played live",
+                               amp_model=preset.amp_model)
                     captured += 1
                     print(f"        captured", flush=True)
             finally:

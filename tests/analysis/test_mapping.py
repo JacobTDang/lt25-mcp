@@ -103,6 +103,32 @@ class TestAmpChoice:
         assert bright != dark
 
 
+class TestModelFamily:
+    def test_every_choosable_model_belongs_to_the_family_that_chooses_it(self):
+        """MODEL_FAMILY scores near misses, so it must never disagree with
+        the rules: a model chosen for 'clean' that the table called 'crunch'
+        would count the chooser wrong for agreeing with itself."""
+        from lt25_mcp.analysis.mapping import MODEL_FAMILY, _amp_for_character
+
+        for character in ("clean", "crunch", "high_gain"):
+            for centroid in (900.0, 1800.0, 2300.0, 3400.0):
+                for mid in (0.05, 0.28, 0.45):
+                    for low in (0.10, 0.35):
+                        f = features(
+                            spectral_centroid_hz=centroid,
+                            mid_energy_ratio=mid,
+                            low_energy_ratio=low,
+                        )
+                        chosen = _amp_for_character(character, f)
+                        assert MODEL_FAMILY[chosen] == character
+
+    def test_families_are_corpus_labels(self):
+        from lt25_mcp.analysis.corpus import LABELS
+        from lt25_mcp.analysis.mapping import MODEL_FAMILY
+
+        assert set(MODEL_FAMILY.values()) <= set(LABELS)
+
+
 class TestReverbChoice:
     def test_dry_signal_gets_no_reverb(self):
         assert choose_reverb(features(decay_time_s=0.15)) == PASSTHRU
