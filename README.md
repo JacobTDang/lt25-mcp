@@ -132,6 +132,17 @@ including the same guitar after a pickup swap or a change of string gauge.
 Capture goes through ffmpeg's avfoundation input, so it needs no audio library
 beyond what is already installed.
 
+The same calibration runs without an assistant:
+
+```bash
+./scripts/py scripts/session.py --name "squier strat"
+```
+
+It auditions the reference preset itself and starts each take when it hears
+playing, so nothing has to be timed. With two or more takes it also reports
+how much identical playing varies between takes — the noise floor under the
+convergence loop, measured in [docs/measurements.md](docs/measurements.md).
+
 Two limits stated plainly in the code: the first guitar calibrated gets no
 adjustment, which is correct because there is nothing yet to adapt between;
 and measured levels are comparable only between captures made the same way,
