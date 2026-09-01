@@ -368,7 +368,9 @@ files with the macOS hidden flag and CPython 3.12+ silently skips those. See
 [docs/troubleshooting.md](docs/troubleshooting.md).
 
 The implementation plan is in
-[docs/superpowers/plans/](docs/superpowers/plans/).
+[docs/superpowers/plans/](docs/superpowers/plans/), what was measured on the amp
+is in [docs/measurements.md](docs/measurements.md), and what is worth doing
+next is in [docs/roadmap.md](docs/roadmap.md).
 
 ## Unofficial
 
