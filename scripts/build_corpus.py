@@ -86,11 +86,15 @@ def main(argv: list[str] | None = None) -> int:
 
                     dest = args.work_dir / f"slot{slot:02d}_{label}.wav"
                     record(dest, args.seconds, allow_short=True)
+                    # The preset in hand knows the true amp model; store it
+                    # directly rather than re-parsing it out of the source.
                     corpus.add(dest, label,
                                source=f"amp slot {slot} {name} ({preset.amp_label}), "
                                       "played live",
-                               # The preset just auditioned is the ground truth
-                               # for what reverb is on this recording.
+                               # The preset just auditioned is the ground
+                               # truth for both: Fender chose the amp model,
+                               # and the reverb is whatever that preset loads.
+                               amp_model=preset.amp_model,
                                reverb=preset.unit("reverb"))
                     captured += 1
                     print(f"        captured", flush=True)

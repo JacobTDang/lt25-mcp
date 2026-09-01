@@ -193,3 +193,79 @@ The two conclusive detections are both small rooms, so the "modest room"
 default has never been tested against a true hall; and a target clip with a
 long washy reverb under continuous playing will still read inconclusive, not
 "reverb present".
+
+## Amp model choice (2026-08-31)
+
+**Question.** `gain_character` is calibrated above. `choose_amp_model` picks
+the specific model *within* the class using centroid and midrange rules that
+came from reputation - Twin brighter than Deluxe brighter than Princeton,
+Marshall mids forward, rectifier mids scooped. Do those rules pick the right
+model on real audio?
+
+**Method.** The nine corpus clips recorded through factory presets each have
+a known true amp model: Fender's own choice for that preset. `Sample.amp_model`
+stores it, backfilled from the source strings, and
+`calibrate.py evaluate-models` runs `choose_amp_model` over every such clip,
+counting exact matches and near misses (right gain family, wrong model in it).
+
+**Result: the family is reliable, the model within it is a guess.**
+Exact model 2/9 (22%), right family 8/9 (89%). Guessing uniformly among the
+three or four models in the correct family would expect two to three exact
+hits on nine clips, so the within-family rules measured no better than chance.
+
+| label | truth | predicted | centroid (Hz) | mid share |
+|---|---|---|---|---|
+| clean | Twin65 | ~ Deluxe65 | 2046 | 23% |
+| clean | Champ57 | ~ Deluxe65 | 1773 | 62% |
+| clean | Deluxe65 | ! Deluxe57 | 2291 | 35% |
+| crunch | Plexi87 | ~ Deluxe57 | 2639 | 24% |
+| crunch | Deluxe57 | ~ Plexi87 | 2103 | 44% |
+| crunch | Bassman59 | ~ Deluxe57 | 1962 | 31% |
+| high gain | MetalRect2 | MetalRect2 | 3217 | 11% |
+| high gain | MetalEvh3 | MetalEvh3 | 3095 | 20% |
+| high gain | Jcm800 | ~ MetalEvh3 | 2636 | 21% |
+
+The one family miss (`!`) is the same COUNTRY PICKING clip the gain
+calibration already misses - its flatness reads crunch, so the chooser never
+saw the clean branch. Family accuracy is the gain classification seen through
+the model chooser; it adds no new information, which is the point: the class
+carries all the evidence there is.
+
+How the within-family rules actually behaved:
+
+- **Clean: everything reads Deluxe.** The Twin - by reputation the brightest
+  clean Fender - measured 2046 Hz, below the 2200 Hz bright boundary. The
+  Champ measured 1773 Hz. Both fell into the middle branch.
+- **Crunch: the forward-mid rule chose backwards on both clips that test
+  it.** The Plexi clip measured 24% mid (below the 38% forward boundary, so
+  not a Plexi), while the Deluxe Dirt clip measured 44% (so, a Plexi). Two
+  samples cannot justify inverting the rule either - that would be fitting
+  the same noise in the other direction.
+- **High gain: the two exact hits, and the one rule the data supports.** The
+  rectifier scoop is real - ALT METAL measured 11% mid, well under the 18%
+  scoop boundary. But the JCM800 clip measured 21% mid, nowhere near the 38%
+  "Marshall mids" boundary, so the same reputation that worked for the
+  rectifier failed for the Marshall.
+
+**Why reputation loses here.** The label is the amp model, but the audio is
+the model *plus Fender's knob settings for that preset* - and the presets do
+not sit at noon. CLASSIC ROCK, the Plexi preset, stores `mid: -4.4` in the
+model's own units next to `treb` at the top of its range: a heavy factory mid
+cut with full treble, which swamps whatever forward voicing the Plexi model
+has and matches the clip measuring 24% mid at a 2639 Hz centroid. Within a
+gain family, the spectral differences between presets are dominated by the
+tone controls, which is exactly the part of the signal chain a
+model-identification rule has to see through and cannot.
+
+**What changed as a result.** Nothing in the rules - the honest move with
+nine clips over eighteen models is to measure and report, not tune. The
+finding is recorded in `mapping.py`'s docstring, `evaluate_models` makes the
+number reproducible as clips accumulate, and there is deliberately no sweep
+counterpart: searching the within-family boundaries against one labelled clip
+per model is fitting noise by construction.
+
+**Caveats.** Same population as the gain calibration: one guitar, one room,
+one player, and one clip per amp model, so every per-model statement above
+rests on a single sample. The factory presets also carry effects - COUNTRY
+PICKING's compressor and tape delay are in its audio - so even the family
+result inherits that confound.

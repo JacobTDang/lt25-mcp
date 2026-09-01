@@ -12,7 +12,9 @@ from lt25_mcp.analysis.corpus import (
     Corpus,
     CorpusError,
     Sample,
+    amp_model_from_source,
     evaluate,
+    evaluate_models,
     evaluate_reverb,
     sweep,
 )
@@ -167,6 +169,25 @@ def tone_features(decay_time_s: float, duration_s: float = 17.7) -> ToneFeatures
     )
 
 
+def measured_tone(**overrides) -> ToneFeatures:
+    """Hand-built features, so a model prediction is known without audio."""
+    base = dict(
+        spectral_centroid_hz=1800.0,
+        spectral_rolloff_hz=4200.0,
+        low_energy_ratio=0.20,
+        mid_energy_ratio=0.28,
+        high_energy_ratio=0.15,
+        crest_factor_db=11.0,
+        harmonic_ratio=0.70,
+        onset_strength=1.5,
+        decay_time_s=decay_time_s,
+        estimated_tempo_bpm=120.0,
+        estimated_key="E",
+        tuning_offset_semitones=0.0,
+        duration_s=duration_s,
+    )
+
+
 def reverb_sample(name: str, truth: str) -> Sample:
     return Sample(f"/corpus/{name}.wav", "clean", reverb=truth)
 
@@ -256,3 +277,153 @@ class TestEvaluateReverb:
         measured = [(Sample("/x.wav", "clean", reverb=""), tone_features(2.0))]
         with pytest.raises(CorpusError, match="no clips with a known reverb"):
             evaluate_reverb(Corpus(), measured=measured)
+
+
+
+def measured_tone(**overrides) -> ToneFeatures:
+    """Hand-built features, so a model prediction is known without audio."""
+    base = dict(
+        spectral_centroid_hz=1800.0,
+        spectral_rolloff_hz=4200.0,
+        low_energy_ratio=0.20,
+        mid_energy_ratio=0.28,
+        high_energy_ratio=0.15,
+        crest_factor_db=11.0,
+        spectral_flatness=0.0015,
+        harmonic_ratio=0.70,
+        onset_strength=1.5,
+        decay_time_s=0.8,
+        estimated_tempo_bpm=120.0,
+        estimated_key="E",
+        tuning_offset_semitones=0.0,
+        duration_s=10.0,
+    )
+    base.update(overrides)
+    return ToneFeatures(**base)
+
+
+# Flatness 0.0004 reads clean; centroid 1400 Hz then chooses DUBS_Deluxe65.
+CLEAN_MID_CENTROID = dict(spectral_flatness=0.0004, spectral_centroid_hz=1400.0)
+
+
+class TestAmpModelTruth:
+    def test_a_source_naming_a_factory_preset_yields_its_model(self):
+        src = "amp slot 1 FENDER CLEAN (TWIN CLEAN), played live"
+        assert amp_model_from_source(src) == "DUBS_Twin65"
+
+    def test_a_source_without_an_amp_label_yields_nothing(self):
+        assert amp_model_from_source("courage solo (TAB lesson), demucs stem") == ""
+
+    def test_an_unknown_amp_model_is_rejected(self, tmp_path):
+        with pytest.raises(CorpusError, match="not a known amp model"):
+            Corpus().add(tmp_path / "a.wav", "clean", amp_model="DUBS_Imaginary")
+
+    def test_backfill_fills_models_recoverable_from_sources(self, tmp_path):
+        c = Corpus()
+        c.add(tmp_path / "a.wav", "clean",
+              source="amp slot 1 FENDER CLEAN (TWIN CLEAN), played live")
+        c.add(tmp_path / "b.wav", "clean", source="a stem separated from a mix")
+        assert c.backfill_amp_models() == 1
+        assert c.samples[0].amp_model == "DUBS_Twin65"
+        assert c.samples[1].amp_model == ""
+
+    def test_backfill_leaves_an_explicit_model_alone(self, tmp_path):
+        c = Corpus()
+        c.add(tmp_path / "a.wav", "crunch",
+              source="amp slot 4 CLASSIC ROCK (70S ROCK), played live",
+              amp_model="DUBS_Bassman59")
+        assert c.backfill_amp_models() == 0
+        assert c.samples[0].amp_model == "DUBS_Bassman59"
+
+    def test_amp_model_round_trips_through_disk(self, tmp_path):
+        c = Corpus()
+        c.add(tmp_path / "a.wav", "clean", amp_model="DUBS_Twin65")
+        path = c.save(tmp_path / "corpus.json")
+        assert Corpus.load(path).samples[0].amp_model == "DUBS_Twin65"
+
+    def test_a_corpus_saved_before_the_field_existed_still_loads(self):
+        data = {"samples": [{"path": "a.wav", "label": "clean",
+                             "source": "", "notes": ""}]}
+        assert Corpus.from_dict(data).samples[0].amp_model == ""
+
+    def test_a_corpus_from_newer_code_is_refused_not_stripped(self):
+        """Loading would drop the unknown field on the next save - a corpus
+        written by newer code must be refused, not quietly truncated."""
+        data = {"samples": [{"path": "a.wav", "label": "clean",
+                             "sparkle": "yes"}]}
+        with pytest.raises(CorpusError, match="sparkle"):
+            Corpus.from_dict(data)
+
+
+class TestEvaluateModels:
+    def test_a_corpus_with_no_known_models_raises(self, corpus):
+        with pytest.raises(CorpusError, match="amp model"):
+            evaluate_models(corpus)
+
+    def test_scores_only_clips_with_a_known_model(self):
+        known = Sample("a.wav", "clean", amp_model="DUBS_Deluxe65")
+        unknown = Sample("b.wav", "clean")
+        report = evaluate_models(
+            Corpus(samples=[known, unknown]),
+            measured=[(known, measured_tone(**CLEAN_MID_CENTROID)),
+                      (unknown, measured_tone())],
+        )
+        assert len(report.predictions) == 1
+        assert report.skipped == 1
+
+    def test_the_exact_model_counts_as_exact_and_family(self):
+        sample = Sample("a.wav", "clean", amp_model="DUBS_Deluxe65")
+        report = evaluate_models(
+            Corpus(samples=[sample]),
+            measured=[(sample, measured_tone(**CLEAN_MID_CENTROID))],
+        )
+        assert report.predictions[0].exact
+        assert report.predictions[0].family
+        assert report.exact_accuracy == 1.0
+        assert report.family_accuracy == 1.0
+
+    def test_the_right_family_wrong_model_is_a_near_miss(self):
+        sample = Sample("a.wav", "clean", amp_model="DUBS_Twin65")
+        report = evaluate_models(
+            Corpus(samples=[sample]),
+            measured=[(sample, measured_tone(**CLEAN_MID_CENTROID))],
+        )
+        assert not report.predictions[0].exact
+        assert report.predictions[0].family
+        assert report.exact_accuracy == 0.0
+        assert report.family_accuracy == 1.0
+
+    def test_the_wrong_family_is_neither(self):
+        sample = Sample("a.wav", "high_gain", amp_model="DUBS_Jcm800")
+        report = evaluate_models(
+            Corpus(samples=[sample]),
+            measured=[(sample, measured_tone(**CLEAN_MID_CENTROID))],
+        )
+        assert not report.predictions[0].exact
+        assert not report.predictions[0].family
+        assert report.family_accuracy == 0.0
+
+    def test_confusion_counts_truth_to_predicted_pairs(self):
+        samples = [Sample(f"{i}.wav", "clean", amp_model="DUBS_Twin65")
+                   for i in range(2)]
+        report = evaluate_models(
+            Corpus(samples=list(samples)),
+            measured=[(s, measured_tone(**CLEAN_MID_CENTROID)) for s in samples],
+        )
+        assert report.confusion == {"DUBS_Twin65": {"DUBS_Deluxe65": 2}}
+
+    def test_describe_reports_both_accuracies_and_the_skipped(self):
+        known = Sample("a.wav", "clean", amp_model="DUBS_Twin65")
+        unknown = Sample("b.wav", "clean")
+        text = evaluate_models(
+            Corpus(samples=[known, unknown]),
+            measured=[(known, measured_tone(**CLEAN_MID_CENTROID))],
+        ).describe()
+        assert "exact" in text
+        assert "family" in text
+        assert "skipped" in text
+
+    def test_measures_the_audio_when_no_measurements_are_given(self, tmp_path):
+        c = Corpus()
+        c.add(tone(tmp_path, "a.wav", 0.2), "clean", amp_model="DUBS_Twin65")
+        assert len(evaluate_models(c).predictions) == 1
