@@ -11,9 +11,13 @@ from lt25_mcp.analysis.corpus import (
     MIN_PER_LABEL,
     Corpus,
     CorpusError,
+    Sample,
     evaluate,
+    evaluate_reverb,
     sweep,
 )
+from lt25_mcp.analysis.features import ToneFeatures
+from lt25_mcp.dsp_catalog import PASSTHRU
 
 SR = 22050
 
@@ -142,3 +146,113 @@ class TestSweep:
         """These fixtures are deliberately far apart; if this fails the rule is broken."""
         best, _ = sweep(corpus)
         assert best.accuracy == 1.0, best.describe()
+
+
+def tone_features(decay_time_s: float, duration_s: float = 17.7) -> ToneFeatures:
+    """Features with only the fields reverb evaluation reads set deliberately."""
+    return ToneFeatures(
+        spectral_centroid_hz=1800.0,
+        spectral_rolloff_hz=4200.0,
+        low_energy_ratio=0.20,
+        mid_energy_ratio=0.28,
+        high_energy_ratio=0.15,
+        crest_factor_db=11.0,
+        harmonic_ratio=0.70,
+        onset_strength=1.5,
+        decay_time_s=decay_time_s,
+        estimated_tempo_bpm=120.0,
+        estimated_key="E",
+        tuning_offset_semitones=0.0,
+        duration_s=duration_s,
+    )
+
+
+def reverb_sample(name: str, truth: str) -> Sample:
+    return Sample(f"/corpus/{name}.wav", "clean", reverb=truth)
+
+
+class TestReverbGroundTruth:
+    def test_a_sample_records_the_reverb_it_was_recorded_through(self, tmp_path):
+        c = Corpus()
+        c.add(tmp_path / "a.wav", "clean", reverb="DUBS_Spring65")
+        assert c.samples[0].reverb == "DUBS_Spring65"
+
+    def test_reverb_round_trips_through_disk(self, tmp_path):
+        c = Corpus()
+        c.add(tmp_path / "a.wav", "clean", reverb="DUBS_SmallRoomReverb")
+        path = c.save(tmp_path / "corpus.json")
+        assert Corpus.load(path).samples[0].reverb == "DUBS_SmallRoomReverb"
+
+    def test_a_corpus_saved_before_reverb_was_recorded_still_loads(self):
+        loaded = Corpus.from_dict(
+            {"samples": [{"path": "/x.wav", "label": "clean", "source": "", "notes": ""}]}
+        )
+        assert loaded.samples[0].reverb == ""
+
+
+class TestEvaluateReverb:
+    """Scored on presence versus absence only. Three reverb sizes over a
+    handful of clips is not enough data to score the size choice."""
+
+    def measured(self, *rows):
+        """rows of (truth_unit, decay_s) -> the measured list evaluate_reverb takes."""
+        return [
+            (reverb_sample(f"clip{i}", truth), tone_features(decay))
+            for i, (truth, decay) in enumerate(rows)
+        ]
+
+    def test_a_clip_with_unknown_reverb_is_not_scored(self):
+        measured = [
+            (Sample("/corpus/youtube.wav", "clean", reverb=""), tone_features(2.0)),
+            (reverb_sample("amp", "DUBS_SmallRoomReverb"), tone_features(2.0)),
+        ]
+        report = evaluate_reverb(Corpus(), measured=measured)
+        assert len(report.predictions) == 1
+        assert report.skipped == 1
+
+    def test_a_saturated_decay_is_an_abstention_not_an_error(self):
+        # decay == duration: continuous playing that never fell 30 dB.
+        measured = [(reverb_sample("a", PASSTHRU), tone_features(17.7, duration_s=17.7))]
+        report = evaluate_reverb(Corpus(), measured=measured)
+        assert report.abstentions == 1
+        assert report.conclusive == []
+
+    def test_an_abstention_is_not_counted_as_correct(self):
+        # Truth has no reverb and the prediction says nothing; that is not a hit.
+        measured = [(reverb_sample("a", PASSTHRU), tone_features(17.7, duration_s=17.7))]
+        report = evaluate_reverb(Corpus(), measured=measured)
+        assert report.presence_accuracy is None
+
+    def test_presence_is_scored_not_the_unit(self):
+        # A small room called by some other reverb unit is still "reverb present".
+        measured = self.measured(("DUBS_SmallRoomReverb", 2.0))
+        report = evaluate_reverb(Corpus(), measured=measured)
+        assert report.presence_accuracy == 1.0
+
+    def test_stripping_a_real_reverb_scores_wrong(self):
+        # A prediction of PASSTHRU against a clip recorded through a reverb is
+        # the worst failure: it would remove an effect the target audibly has.
+        sample = reverb_sample("spring", "DUBS_Spring65")
+        report = evaluate_reverb(
+            Corpus(), measured=[(sample, tone_features(2.0))], predict=lambda f: PASSTHRU
+        )
+        assert report.presence_accuracy == 0.0
+
+    def test_describe_reports_abstentions_and_accuracy(self):
+        measured = self.measured(
+            ("DUBS_SmallRoomReverb", 2.0),
+            (PASSTHRU, 17.7),
+        )
+        text = evaluate_reverb(Corpus(), measured=measured).describe()
+        assert "abstain" in text.lower()
+        assert "1/1" in text
+
+    def test_describe_says_when_every_clip_abstained(self):
+        measured = self.measured((PASSTHRU, 17.7), ("DUBS_Spring65", 17.7))
+        text = evaluate_reverb(Corpus(), measured=measured).describe()
+        assert "inherit" in text.lower()
+
+    def test_a_corpus_with_no_known_reverbs_raises(self):
+        measured = [(Sample("/x.wav", "clean", reverb=""), tone_features(2.0))]
+        with pytest.raises(CorpusError, match="no clips with a known reverb"):
+            evaluate_reverb(Corpus(), measured=measured)

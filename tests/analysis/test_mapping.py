@@ -104,17 +104,30 @@ class TestAmpChoice:
 
 
 class TestReverbChoice:
-    def test_dry_signal_gets_no_reverb(self):
-        assert choose_reverb(features(decay_time_s=0.15)) == PASSTHRU
+    """Validated against nine corpus clips with known reverb; see
+    docs/measurements.md. The measurement supports presence, not size, and
+    never supports absence."""
 
-    def test_long_tail_gets_a_big_reverb(self):
-        assert choose_reverb(features(decay_time_s=3.5)) in {
-            "DUBS_LargeHallReverb",
-            "DUBS_ArenaReverb",
-        }
+    def test_a_short_decay_is_inconclusive_not_dry(self):
+        """The one real clip that measured under the note-decay bound (0.52 s)
+        was recorded through a spring reverb, so a short decay cannot certify
+        dryness - it means the take contained a gap, nothing more."""
+        assert choose_reverb(features(decay_time_s=0.15)) is None
 
-    def test_short_tail_gets_a_room(self):
+    def test_a_conclusive_tail_gets_a_modest_room(self):
         assert choose_reverb(features(decay_time_s=1.0)) == "DUBS_SmallRoomReverb"
+
+    def test_size_is_not_read_from_the_tail(self):
+        """Both corpus clips with a small room measured 1.95 s and 3.52 s -
+        past the old 1.6 s hall boundary - because measured decay adds note
+        sustain to the reverb tail. A long tail is still just 'present'."""
+        assert choose_reverb(features(decay_time_s=3.5)) == "DUBS_SmallRoomReverb"
+
+    def test_reverb_is_never_stripped(self):
+        """Absence is unmeasurable: every no-reverb corpus clip saturated the
+        decay measurement rather than measuring short."""
+        for decay in (0.05, 0.4, 1.0, 3.0, 7.9):
+            assert choose_reverb(features(decay_time_s=decay)) != PASSTHRU
 
 
 class TestBuildPreset:
@@ -186,6 +199,13 @@ class TestReverbInconclusive:
         built = build_preset(
             features(decay_time_s=25.0, duration_s=25.0), sample_preset
         )
+        assert built.unit("reverb") == before
+
+    def test_a_short_decay_also_leaves_the_base_reverb_alone(self, sample_preset):
+        """The corpus counterexample: a spring reverb measured 0.52 s. Reading
+        that as 'dry' would have stripped a reverb the recording audibly has."""
+        before = sample_preset.unit("reverb")
+        built = build_preset(features(decay_time_s=0.52), sample_preset)
         assert built.unit("reverb") == before
 
     def test_a_genuine_tail_still_gets_reverb(self):

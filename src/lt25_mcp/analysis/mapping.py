@@ -16,7 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from lt25_mcp.analysis.features import ToneFeatures
-from lt25_mcp.dsp_catalog import PASSTHRU
 from lt25_mcp.preset import DISPLAY_NAME_LENGTH, Preset, PresetError
 
 # Saturation is read from spectral flatness: distortion generates harmonics
@@ -61,9 +60,11 @@ KNOB_MAX = 0.90
 BRIGHT_CENTROID_HZ = 2200.0
 DARK_CENTROID_HZ = 1200.0
 
-# Below this the source is effectively dry.
-DRY_DECAY_S = 0.6
-ROOM_DECAY_S = 1.6
+# Below this a measured decay is a note's own release, not a room. It used to
+# be read as "the source is dry", and the corpus falsified that: the one real
+# clip that measured under it (0.52 s) was recorded through a spring reverb.
+# A short decay means the take contained a gap, nothing more.
+NOTE_DECAY_S = 0.6
 
 # If the measured decay reaches this fraction of the clip, the signal never
 # actually decayed and the number means nothing.
@@ -184,23 +185,38 @@ def choose_amp_model(features: ToneFeatures) -> str:
 
 
 def choose_reverb(features: ToneFeatures) -> str | None:
-    """Reverb sized from how long the source rings out.
+    """A reverb only when the source conclusively rings out; otherwise None.
 
-    Returns None when the measurement carries no information. That happens two
-    ways: continuous music never falls 30 dB below its own peak, so the decay
-    saturates at the clip length; or a clip fades out at the end, which drops
-    the envelope on a timescale far longer than any real reverb. In both cases
-    the caller should leave whatever reverb the base preset already has, rather
-    than inventing a hall or stripping one out on no evidence.
+    Validated against nine corpus clips whose true reverb is known from the
+    preset each was recorded through (see docs/measurements.md). The
+    measurement supports far less than this function used to claim:
+
+    - Absence is unmeasurable. Every no-reverb clip saturated the decay
+      measurement - continuous playing never falls 30 dB below its own peak -
+      so a dry source looks exactly like an inconclusive one. This function
+      therefore never returns PASSTHRU: it cannot strip a reverb the base
+      preset has, only add one or leave it alone.
+    - A short decay does not mean dry either. The one clip that measured
+      under NOTE_DECAY_S was recorded through a spring reverb; a subtle
+      tail sits inside the 30 dB window of the note's own release. Short is
+      treated as no information, not as evidence of dryness.
+    - Size cannot be read from the number. Measured decay adds note sustain
+      and the phrase's fade to the reverb tail, so it overstates it: both
+      small-room clips that measured conclusively (1.95 s and 3.52 s) landed
+      past the old 1.6 s hall boundary and were called halls. A conclusive
+      tail now claims only "some reverb is present" and gets the modest
+      room, rather than a size fitted to two samples.
+
+    Returns None whenever the measurement carries no information - saturated,
+    implausibly long, or too short to be distinguishable from note decay - and
+    the caller keeps whatever reverb the base preset already has.
     """
     if features.decay_time_s >= features.duration_s * INCONCLUSIVE_DECAY_FRACTION:
         return None
     if features.decay_time_s > MAX_PLAUSIBLE_DECAY_S:
         return None
-    if features.decay_time_s < DRY_DECAY_S:
-        return PASSTHRU
-    if features.decay_time_s >= ROOM_DECAY_S:
-        return "DUBS_LargeHallReverb"
+    if features.decay_time_s < NOTE_DECAY_S:
+        return None
     return "DUBS_SmallRoomReverb"
 
 
