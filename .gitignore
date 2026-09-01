@@ -10,3 +10,6 @@ backups/
 
 # Generated protobuf bindings - run ./scripts/gen_proto.sh
 src/lt25_mcp/_generated/
+
+# Agent worktrees, created by isolated subagent runs
+.claude/
