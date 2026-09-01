@@ -129,3 +129,67 @@ the best fit to that evidence, not a law. Flatness is computed over the whole
 spectrum, so it moves with the sample rate - the stability harness excludes
 resampled variants from agreement for that reason, and the calibration was
 done at 44.1 kHz.
+
+## Reverb detection (2026-08-31)
+
+**Question.** `choose_reverb` read a reverb size off `decay_time_s` - the time
+for the signal to fall 30 dB from its peak - with thresholds set by reasoning,
+never against a recording whose reverb was known. Does any of it survive
+contact with real audio?
+
+**Method.** The nine corpus clips, each recorded through a factory preset
+whose reverb unit is known from the slot backups: five with reverb (a spring,
+a plate, three small rooms), four with none. Scored on presence versus
+absence only - three sizes over five reverb clips is not enough to grade the
+size choice.
+
+**Result.**
+
+| clip | true reverb | measured decay | old rule said |
+|---|---|---|---|
+| slot01 | Spring65 | 0.52 s | **strip the reverb** (wrong) |
+| slot17 | SmallRoom | 1.95 s | LargeHall (present, oversized) |
+| slot03 | SmallRoom | 3.52 s | LargeHall (present, oversized) |
+| slot26 | SmallRoom | 17.76 s (saturated) | inconclusive |
+| slot04 | LargePlate | 17.75 s (saturated) | inconclusive |
+| slot06, 11, 14, 22 | none | 17.6-17.8 s (saturated) | inconclusive |
+
+Three findings, each about what the measurement *cannot* do:
+
+- **Absence is unmeasurable.** Every no-reverb clip saturated - continuous
+  playing never falls 30 dB below its own peak - so a dry take looks exactly
+  like an inconclusive one. The "dry, therefore strip the reverb" branch had
+  no way to ever fire correctly on this material.
+- **A short decay does not mean dry.** The only clip that measured under the
+  0.6 s "dry" bound was recorded through a spring reverb: a subtle tail sits
+  inside the 30 dB window of the note's own release, so the branch's one real
+  firing would have stripped a reverb the recording audibly has.
+- **Size cannot be read from the number.** Measured decay adds note sustain
+  and the phrase's fade to the reverb tail. Both small rooms that measured
+  conclusively landed past the old 1.6 s hall boundary and were called halls.
+
+What survives: when a tail did measure inside the plausible window, reverb
+really was present, both times.
+
+**What changed as a result.**
+
+- `choose_reverb` no longer returns PASSTHRU. It cannot strip a base preset's
+  reverb, only add one or leave it alone; a short decay is treated as no
+  information rather than as dryness (`DRY_DECAY_S` became `NOTE_DECAY_S`).
+- The size split is gone. A conclusive tail claims only "some reverb is
+  present" and gets the modest small room; `ROOM_DECAY_S` and the hall branch
+  were removed rather than refitted to two samples.
+- The corpus records each clip's true reverb (`Sample.reverb`, filled from
+  the slot backups; `build_corpus.py` records it at capture), and
+  `calibrate.py reverb` re-scores presence against it as the corpus grows.
+
+On this corpus the revised rule abstains on 7 of 9 and is right on presence
+2/2 where it answers at all. The honest summary: reverb mostly cannot be
+recovered from a continuous take, and the pipeline's job is to inherit the
+base preset's reverb unless a clip conclusively rings out.
+
+**Caveats.** Nine clips, one player, one phrase per label, takes of ~18 s.
+The two conclusive detections are both small rooms, so the "modest room"
+default has never been tested against a true hall; and a target clip with a
+long washy reverb under continuous playing will still read inconclusive, not
+"reverb present".

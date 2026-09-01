@@ -88,7 +88,10 @@ def main(argv: list[str] | None = None) -> int:
                     record(dest, args.seconds, allow_short=True)
                     corpus.add(dest, label,
                                source=f"amp slot {slot} {name} ({preset.amp_label}), "
-                                      "played live")
+                                      "played live",
+                               # The preset just auditioned is the ground truth
+                               # for what reverb is on this recording.
+                               reverb=preset.unit("reverb"))
                     captured += 1
                     print(f"        captured", flush=True)
             finally:

@@ -4,10 +4,13 @@
     ./scripts/py scripts/calibrate.py list
     ./scripts/py scripts/calibrate.py evaluate
     ./scripts/py scripts/calibrate.py sweep
+    ./scripts/py scripts/calibrate.py reverb
 
 `evaluate` scores the current thresholds. `sweep` searches for better ones and
 prints what to change in mapping.py - it never edits the module itself, since a
-threshold worth adopting is worth reading first.
+threshold worth adopting is worth reading first. `reverb` scores reverb
+inference on presence versus absence, against the clips whose true reverb is
+recorded (pass `--reverb DUBS_...` to `add`, read from the slot's backup).
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from lt25_mcp.analysis.corpus import (
     Corpus,
     CorpusError,
     evaluate,
+    evaluate_reverb,
     sweep,
 )
 from lt25_mcp.analysis.mapping import CLEAN_FLATNESS, HIGH_GAIN_FLATNESS
@@ -50,10 +54,14 @@ def main(argv: list[str] | None = None) -> int:
     add.add_argument("--label", required=True, choices=LABELS)
     add.add_argument("--source", default="")
     add.add_argument("--notes", default="")
+    add.add_argument("--reverb", default="",
+                     help="FenderId of the reverb the clip was recorded through "
+                          "(from the slot's backup); DUBS_Passthru for none")
 
     sub.add_parser("list", help="show the corpus")
     sub.add_parser("evaluate", help="score the current thresholds")
     sub.add_parser("sweep", help="search for better thresholds")
+    sub.add_parser("reverb", help="score reverb inference on presence vs absence")
 
     remove = sub.add_parser("remove", help="drop a clip from the corpus")
     remove.add_argument("clip", type=Path)
@@ -66,7 +74,8 @@ def main(argv: list[str] | None = None) -> int:
             if not args.clip.exists():
                 print(f"error: no such file: {args.clip}", file=sys.stderr)
                 return 1
-            corpus.add(args.clip.resolve(), args.label, args.source, args.notes)
+            corpus.add(args.clip.resolve(), args.label, args.source, args.notes,
+                       reverb=args.reverb)
             corpus.save()
             counts = corpus.counts()
             print(f"added {args.clip.name} as {args.label}")
@@ -99,6 +108,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "evaluate":
             _warn_if_thin(corpus)
             print(evaluate(corpus).describe())
+            return 0
+
+        if args.command == "reverb":
+            print(evaluate_reverb(corpus).describe())
             return 0
 
         if args.command == "sweep":
