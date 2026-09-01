@@ -11,8 +11,14 @@ menu-diving on the amp's encoder wheel.
 ## Status
 
 Both halves work end to end. Amp control is verified against real hardware
-(Mustang LT 25, firmware 2.1.4), and the analysis pipeline has been run on a
-real YouTube clip through to a preset.
+(Mustang LT 25, firmware 2.1.4), the analysis pipeline has been run on a real
+YouTube clip through to a preset, and the by-ear tuning loop has been driven by
+a player to a finished tone saved on the amp.
+
+What it is good at and what it is not is measured rather than claimed - see
+[docs/measurements.md](docs/measurements.md). In short: amp control is solid,
+the coarse tonal judgement is solid (gain class 90%), and the fine-grained
+inferences are not (amp model 22%, reverb abstains).
 
 | | |
 |---|---|
@@ -27,6 +33,7 @@ real YouTube clip through to a preset.
 | MCP server (9 tools) | done |
 | Analysis: acquire / stems / features / plots / mapping / CLI | done |
 | Analysis on a real clip | done — see the worked example below |
+| Tuning by ear with a player | done — seven iterations to a saved preset |
 
 ## Quick start
 
@@ -241,6 +248,34 @@ measurements and the convergence are all genuine, only the amp is simulated.
 
 Chart colours are the validated default from the data-viz method, run through
 its own checker rather than eyeballed.
+
+## Tuning by ear, in practice
+
+The first real session went from an analysed preset to a finished tone in
+seven iterations, one or two controls each:
+
+```
+compressor -> Greenbox drive      "missing more of the harsh sound"
+drive tone 1.4 -> 7.2             "kinda like muffled"
+drive -> Big Fuzz                 "more muffled and buzzy"
+fuzz tone 5.7 -> 7.2              "too muffled"
+fuzz gain halved                  "too much buzz"
+fuzz gain halved, treble down     "less buzzy and a little cleaner"
+bass 2.8 -> 5.2                   "a little bit deeper"
+fuzz gain up, treble down         "more screech, a tad more muffled"
+```
+
+Two things that session taught, both now folded back in:
+
+**One of those changes was a fix, not a preference.** Bass sat at 2.8/10
+because the analysis measured an isolated lead line played high on the neck,
+which has almost no low end. The pipeline read the *part* as the *tone*. That
+is the same failure mode the knob mapping already guards against, showing up
+again a level down.
+
+**`tuning_guide` can suggest a control the loaded model does not have.** Its
+answer for "too dark" is treble plus presence, and `DELUXE CLN` has no presence
+control. The advice needs filtering by what the current model exposes.
 
 ## How the amp talks
 
