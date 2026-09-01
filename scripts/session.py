@@ -1,15 +1,22 @@
-"""One playing session that answers both open hardware questions.
+"""Profile a guitar and, with enough takes, measure how much the playing varies.
 
     ./scripts/py scripts/session.py --name "squier strat"
 
-Loads the linear reference preset, records several takes of the same phrase,
-and uses them twice:
+Auditions the linear reference preset and records takes through it. Each take
+starts when the amp hears playing, the same way build_corpus.py works - an
+earlier version prompted "press enter, then play", and the seconds of fumbling
+after enter went into every measurement.
 
   * take 1 becomes the guitar's profile, so presets can adapt to this
     instrument instead of to an assumed pickup type
-  * every take is compared against every other, with nothing changed between
-    them, which measures how much of a convergence iteration is the playing
-    rather than the amp
+  * with two or more takes, every take is compared against every other with
+    nothing changed between them, which measures how much of a convergence
+    iteration is the playing rather than the amp
+
+The variance measurement that set the convergence weights and deadbands is
+written up in docs/measurements.md; --takes 2 or more repeats it, which is
+worth doing after anything that changes the capture path. --takes 1 profiles
+the guitar and stops.
 
 Nothing is written to the amp. The reference preset is auditioned, which the
 amp forgets the moment the session ends.
@@ -22,11 +29,12 @@ import json
 import statistics
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import _bootstrap  # noqa: F401  (puts src/ on sys.path)
 
-from lt25_mcp.analysis.capture import CaptureError, record
+from lt25_mcp.analysis.capture import CaptureError, record, wait_for_playing
 from lt25_mcp.analysis.converge import CONVERGED, compare
 from lt25_mcp.analysis.features import FeatureError, extract
 from lt25_mcp.commands import audition, exit_audition
@@ -69,7 +77,9 @@ def reference_preset(base: Preset) -> Preset:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", required=True, help="a name for this guitar")
-    parser.add_argument("--takes", type=int, default=4)
+    parser.add_argument("--takes", type=int, default=4,
+                        help="1 profiles the guitar only; 2 or more also "
+                             "measures take-to-take variance")
     parser.add_argument("--seconds", type=float, default=30.0,
                         help="per take; below 30s the measurement is mostly playing")
     parser.add_argument("--base", type=Path, default=Path("tests/fixtures/clean.json"))
@@ -77,8 +87,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pickups", default="unknown")
     args = parser.parse_args(argv)
 
-    if args.takes < 2:
-        print("error: need at least two takes to measure variance", file=sys.stderr)
+    if args.takes < 1:
+        print("error: need at least one take", file=sys.stderr)
         return 1
 
     work = args.work_dir or Path(tempfile.mkdtemp(prefix="lt25-session-"))
@@ -90,8 +100,10 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print(CALIBRATION_INSTRUCTIONS)
     print()
-    print("Play the SAME phrase for every take. Change nothing between them -")
-    print("not the amp, not the guitar's volume or tone, not your picking hand.")
+    if args.takes > 1:
+        print("Play the SAME phrase for every take. Change nothing between them -")
+        print("not the amp, not the guitar's volume or tone, not your picking hand.")
+    print("Each take starts when it hears you, so there is nothing to time.")
     print()
 
     takes: list[Path] = []
@@ -99,19 +111,27 @@ def main(argv: list[str] | None = None) -> int:
         with Session(open_transport()) as amp:
             audition(amp, preset)
             print("reference preset is now playing through the amp\n")
+            # Let the amp finish switching before listening, or the first
+            # probe hears the previous preset's tail.
+            time.sleep(0.6)
             try:
                 for i in range(1, args.takes + 1):
-                    input(f"take {i} of {args.takes} - press enter, then play "
-                          f"for {args.seconds:.0f}s: ")
+                    print(f"take {i} of {args.takes}: play for "
+                          f"{args.seconds:.0f}s", flush=True)
+                    wait_for_playing(
+                        timeout=90,
+                        on_wait=lambda n: print("  waiting for you to play…",
+                                                flush=True) if n == 1 else None,
+                    )
                     takes.append(record(work / f"take{i}.wav", args.seconds))
-                    print(f"  captured take {i}")
+                    print(f"  captured take {i}", flush=True)
             finally:
                 exit_audition(amp)
                 print("\naudition ended, amp restored")
     except (TransportError, CaptureError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    except (KeyboardInterrupt, EOFError):
+    except KeyboardInterrupt:
         print("\nstopped", file=sys.stderr)
         return 1
 
@@ -138,6 +158,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         against = library.reference.name if library.reference else "?"
         print(f"  compared against {against}")
+
+    if len(measured) < 2:
+        print(f"\ntake kept in {work}")
+        return 0
 
     # ---- how much of a take is the playing -------------------------------
     print("\n" + "=" * 62)
